@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from analytics import save_query_analysis
 from scraper import get_html_pages
 from parser import get_cars_from_content
 from storage import upsert_cars_to_csv
@@ -62,6 +63,23 @@ def process_query(query: dict[str, str | int]) -> None:
     print(f"Nowe ogłoszenia: {new_count}")
     print(f"Zaktualizowane ogłoszenia: {updated_count}")
     print(f"Zapisano do pliku: {csv_file}")
+
+    try:
+        analysis_path, analysis_results = save_query_analysis(query_name, csv_file)
+        top_results = [result for result in analysis_results if result.decision_bucket in {"candidate", "high-priority"}][:3]
+
+        print(f"Zapisano analizę do pliku: {analysis_path}")
+        print(f"Oferty oznaczone jako candidate/high-priority: {sum(result.decision_bucket in {'candidate', 'high-priority'} for result in analysis_results)}")
+
+        if top_results:
+            print("Top oferty wg analityki:")
+            for result in top_results:
+                print(
+                    f"- {result.listing_id} | final={result.final_score} | market={result.market_score} | "
+                    f"confidence={result.confidence_score} | {result.title}"
+                )
+    except Exception as exc:
+        print(f"Analiza kwerendy '{query_name}' nie powiodła się: {exc}")
 
 
 def main() -> None:

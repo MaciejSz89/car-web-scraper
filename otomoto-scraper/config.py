@@ -16,8 +16,11 @@ class QueryConfig(TypedDict):
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SCRAPER_DIR = PROJECT_ROOT / "otomoto-scraper"
 DATA_DIR = PROJECT_ROOT / "data" / "otomoto"
+ANALYTICS_DIR = DATA_DIR / "analytics"
 QUERIES_FILE = SCRAPER_DIR / "queries.json"
 QUERIES_EXAMPLE_FILE = SCRAPER_DIR / "queries.example.json"
+PREFERENCES_FILE = SCRAPER_DIR / "preferences.json"
+PREFERENCES_EXAMPLE_FILE = SCRAPER_DIR / "preferences.example.json"
 SESSION_STATE_FILE = DATA_DIR / ".session-state.json"
 
 HEADLESS = False

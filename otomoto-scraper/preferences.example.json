@@ -1,0 +1,72 @@
+{
+  "profile_name": "default",
+  "global": {
+    "hard_filters": {
+      "max_price_pln": 95000,
+      "max_mileage_km": 170000,
+      "min_year": 2016,
+      "fuel_types": ["Benzyna"],
+      "min_engine_cm3": 1400,
+      "min_power_hp": 120,
+      "gearboxes": ["Manualna", "Automatyczna"]
+    },
+    "soft_preferences": {
+      "preferred_gearboxes": {
+        "Automatyczna": 12,
+        "Manualna": 0
+      },
+      "preferred_fuel_types": {
+        "Benzyna": 10,
+        "Hybryda": 4,
+        "LPG": -8
+      },
+      "year_boost": {
+        "min_year": 2020,
+        "score": 8
+      },
+      "low_mileage_boost": {
+        "max_mileage_km": 90000,
+        "score": 10
+      },
+      "high_mileage_penalty": {
+        "min_mileage_km": 140000,
+        "score": -12
+      }
+    },
+    "notification_filters": {
+      "min_final_score": 65,
+      "require_hard_filter_pass": true,
+      "allowed_buckets": ["candidate", "high-priority"]
+    }
+  },
+  "queries": {
+    "Kia Sportage": {
+      "hard_filters": {
+        "min_power_hp": 140,
+        "gearboxes": ["Automatyczna"],
+        "max_mileage_km": 150000
+      },
+      "soft_preferences": {
+        "preferred_engine_cm3_ranges": [
+          {
+            "min": 1500,
+            "max": 2500,
+            "score": 8
+          }
+        ]
+      }
+    },
+    "Dacia Duster": {
+      "hard_filters": {
+        "max_price_pln": 70000,
+        "min_year": 2018
+      },
+      "soft_preferences": {
+        "preferred_gearboxes": {
+          "Manualna": 6,
+          "Automatyczna": 0
+        }
+      }
+    }
+  }
+}

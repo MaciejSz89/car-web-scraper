@@ -57,6 +57,94 @@ Aktualizujemy go przy każdym nowym, zmienionym, wykonanym lub usuniętym wymaga
 | REQ-034 | planned     | Notifications | System ma deduplikować powiadomienia na poziomie oferty i typu zdarzenia.                         | Ta sama oferta nie może generować powiadomienia przy każdym przebiegu bez nowego sygnału.                        |
 | REQ-035 | planned     | Notifications | System ma rozróżniać typy zdarzeń powiadomień.                                                    | Np. nowa okazja, spadek ceny, ponowna aktywacja, przejście do wyższego bucketu.                                  |
 | REQ-036 | planned     | Notifications | Powiadomienie ma zawierać skrót powodów decyzji.                                                  | Co najmniej cena względem rynku, bucket, confidence i najważniejsze flagi.                                       |
+| REQ-037 | planned     | Preferences   | System ma mieć osobną warstwę preferencji użytkownika niezależną od bazowej analityki rynku.      | Preferencje nie mogą zniekształcać `market_score`.                                                               |
+| REQ-038 | planned     | Preferences   | System ma rozróżniać twarde filtry preferencji i miękkie preferencje rankingowe.                  | Np. minimalna pojemność jako hard filter, automat jako soft preference.                                          |
+| REQ-039 | planned     | Preferences   | Preferencje mają dać się konfigurować globalnie i per kwerenda.                                   | Różne modele mogą mieć różne limity i priorytety.                                                                |
+| REQ-040 | planned     | Analytics     | Wynik analityczny ma rozdzielać `market_score`, `preference_score` i `final_score`.               | `final_score` ma wynikać z rynku i preferencji, ale nie zastępować ich osobnych składowych.                      |
+| REQ-041 | planned     | Analytics     | System ma zwracać jawny wynik działania preferencji na ofertę.                                    | Co najmniej `hard_filter_passed`, `preference_reasons` i zastosowane reguły.                                     |
+| REQ-042 | planned     | Storage       | System ma mieć zdefiniowany model danych dla wyniku analityki, enrichmentu, LLM i powiadomień.    | Potrzebny stabilny kontrakt danych przed implementacją pipeline'u.                                               |
+
+## Preference Layer Rules
+
+### 1. Cel warstwy preferencji
+
+- Warstwa preferencji ma modelować to, czego użytkownik aktualnie szuka, niezależnie od tego, czy oferta jest obiektywnie dobra względem rynku.
+- Preferencje nie mogą zmieniać sposobu liczenia segmentu porównawczego ani bazowego `market_score`.
+- Zmiana preferencji użytkownika powinna umożliwiać szybkie przeliczenie shortlisty bez przebudowy historii rynku.
+
+### 2. Typy reguł preferencji
+
+- `hard_filters`: reguły odrzucające ofertę z dalszego procesu użytkowego, np. minimalna pojemność silnika albo maksymalny przebieg.
+- `soft_preferences`: reguły zwiększające lub zmniejszające `preference_score`, np. premia za automat albo karanie LPG.
+- `boost_rules`: dodatkowe premie za szczególnie pożądane konfiguracje, np. wyższy rocznik albo mocniejszy silnik.
+- `notification_filters`: reguły blokujące powiadomienia mimo wysokiego `market_score`, jeśli oferta nie pasuje do preferencji użytkownika.
+
+### 3. Zakres konfiguracji preferencji
+
+- Preferencje globalne mają działać dla całego projektu.
+- Preferencje per kwerenda mają nadpisywać lub rozszerzać ustawienia globalne dla konkretnego modelu.
+- Preferencje powinny obsługiwać co najmniej: minimalny i maksymalny przebieg, minimalną pojemność, minimalną moc, paliwo, skrzynię, budżet i rocznik.
+
+### 4. Wpływ preferencji na pipeline
+
+- `market_score` ma być liczony bez udziału preferencji użytkownika.
+- `preference_score` ma być liczony na podstawie konfiguracji preferencji.
+- `final_score` ma uwzględniać oba wyniki, ale osobno zapisywać ich źródła.
+- Oferta niespełniająca `hard_filters` może zostać zapisana jako ciekawa rynkowo, ale nie powinna trafiać do powiadomień użytkownika.
+
+### 5. Wymagany wynik warstwy preferencji
+
+- `hard_filter_passed`.
+- `preference_score` w skali `0-100`.
+- `preference_reasons`, czyli lista reguł, które zwiększyły lub obniżyły priorytet.
+- `applied_preference_profile`, czyli nazwa profilu lub zestawu reguł użytych do oceny.
+
+## Analytics Output Model
+
+### 1. Minimalny kontrakt wyniku analityki
+
+- `listing_id`.
+- `query_name`.
+- `market_score`.
+- `confidence_score`.
+- `preference_score`.
+- `final_score`.
+- `decision_bucket`.
+- `hard_filter_passed`.
+- `comparison_group_size`.
+- `fallback_level`.
+- `market_reasons`.
+- `preference_reasons`.
+
+### 2. Minimalny kontrakt enrichmentu
+
+- `listing_id`.
+- `enrichment_priority`.
+- `details_status`.
+- `details_fetched_at`.
+- `details_based_on_price_pln`.
+- `details_based_on_last_seen_date`.
+- `details_fields_present`.
+
+### 3. Minimalny kontrakt LLM
+
+- `listing_id`.
+- `llm_verdict`.
+- `llm_risk_level`.
+- `llm_confidence`.
+- `llm_summary`.
+- `llm_reasons`.
+- `llm_reviewed_at`.
+
+### 4. Minimalny kontrakt powiadomień
+
+- `listing_id`.
+- `event_type`.
+- `notification_channel`.
+- `notification_decision`.
+- `notification_sent_at`.
+- `notification_status`.
+- `notification_reason_summary`.
 
 ## Comparable Offer Segmentation Rules
 
@@ -316,6 +404,7 @@ Aktualizujemy go przy każdym nowym, zmienionym, wykonanym lub usuniętym wymaga
 - `deal_score` i `confidence_score` mają być rozdzielone, bo atrakcyjność oferty i pewność oceny to dwa różne sygnały.
 - Enrichment ma być selektywny, kolejkujący i reaktywny na nowe sygnały, a nie wykonywany hurtowo dla całego rynku.
 - LLM ma redukować ryzyko fałszywych pozytywów, a powiadomienia mają trafiać dopiero po przejściu przez cały sensowny filtr decyzyjny.
+- Preferencje użytkownika mają działać jako osobna warstwa decyzji, a nie jako substytut analityki rynkowej.
 
 ## Done Requirements
 
@@ -335,3 +424,4 @@ Na razie brak wpisów.
 | 2026-04-07 | Rozpisano reguły `deal_score` v1: zakres wyniku, składowe score, progi decyzyjne, oddzielenie `confidence_score` oraz wymagany format wyniku analitycznego.                                   |
 | 2026-04-07 | Rozpisano reguły selekcji do enrichmentu: wyzwalacze, priorytety kolejki, cooldown ponownych pobrań, warunki pominięcia oraz minimalny stan zapisywany po enrichmentcie.                      |
 | 2026-04-07 | Rozpisano reguły wejścia do LLM i powiadomień: zakres kandydatów, format werdyktu LLM, zdarzenia notyfikacyjne, deduplikację i minimalną zawartość komunikatu.                                |
+| 2026-04-07 | Dodano warstwę preferencji użytkownika oraz minimalny kontrakt danych dla analityki, enrichmentu, LLM i powiadomień.                                                                          |
