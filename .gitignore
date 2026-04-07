@@ -4,3 +4,4 @@ data/
 bin/
 obj/
 otomoto-scraper/queries.json
+preferences.json
