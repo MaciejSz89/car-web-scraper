@@ -4,7 +4,7 @@ import json
 
 from bs4 import BeautifulSoup, Tag
 
-from utils import clean_text, to_int
+from utils import clean_text, to_int, detect_damage
 
 
 def extract_title_and_link(article: Tag) -> tuple[Optional[str], Optional[str]]:
@@ -156,6 +156,10 @@ def parse_car(article: Tag) -> Optional[dict]:
     year = to_int(extract_parameter(article, "year"))
     location = extract_location(article)
 
+    # szybkie sprawdzenie informacji o uszkodzeniu z tekstów karty
+    combined_text = " ".join(filter(None, [title, subtitle]))
+    is_damaged, condition_note = detect_damage(combined_text)
+
     return {
         "listing_id": listing_id,
         "title": title,
@@ -170,6 +174,8 @@ def parse_car(article: Tag) -> Optional[dict]:
         "gearbox": gearbox,
         "year": year,
         "location": location,
+        "is_damaged": 1 if is_damaged else 0,
+        "condition_note": condition_note or "",
     }
 
 

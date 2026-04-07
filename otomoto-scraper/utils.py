@@ -25,3 +25,25 @@ def safe_int(value: Optional[str | int]) -> Optional[int]:
         return int(str(value))
     except ValueError:
         return None
+
+
+def detect_damage(text: Optional[str]) -> tuple[bool, Optional[str]]:
+    """Szybkie wykrywanie słów-kluczy sugerujących uszkodzenie/kolizję.
+
+    Zwraca (is_damaged, note) gdzie note to dopasowane słowo/frasetka.
+    Funkcja jest celowo prosta — służy jako szybkie, list-card-level wykrycie.
+    """
+    if not text:
+        return False, None
+
+    lowered = text.lower()
+    keywords = [
+        "uszk", "bezwypad", "kolizj", "wypadk", "stluczk", "stłuczk", "do poprawek",
+        "lekko uszkodzon", "powypadkow", "napraw", "naprawiany", "po kolizji",
+    ]
+
+    for kw in keywords:
+        if kw in lowered:
+            return True, kw
+
+    return False, None

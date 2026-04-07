@@ -47,6 +47,12 @@ def read_existing_cars(csv_file: str) -> dict[str, dict]:
             if "removed_date" not in row:
                 row["removed_date"] = ""
 
+            if "is_damaged" not in row:
+                row["is_damaged"] = 0
+
+            if "condition_note" not in row:
+                row["condition_note"] = ""
+
             cars_by_id[listing_id] = row
 
     return cars_by_id
@@ -75,6 +81,8 @@ def upsert_cars_to_csv(cars: list[dict], csv_file: str) -> tuple[int, int]:
         "gearbox",
         "year",
         "location",
+        "is_damaged",
+        "condition_note",
         "first_seen_date",
         "last_seen_date",
         "days_on_site",
@@ -122,6 +130,9 @@ def upsert_cars_to_csv(cars: list[dict], csv_file: str) -> tuple[int, int]:
             row["gearbox"] = car["gearbox"]
             row["year"] = car["year"]
             row["location"] = car["location"]
+            # aktualizuj informacje o stanie/uszkodzeniu
+            row["is_damaged"] = 1 if car.get("is_damaged") else 0
+            row["condition_note"] = car.get("condition_note") or ""
             row["last_seen_date"] = today
             row["days_on_site"] = calculate_days_on_site(row["first_seen_date"], today)
 
@@ -163,6 +174,9 @@ def upsert_cars_to_csv(cars: list[dict], csv_file: str) -> tuple[int, int]:
             car["lowest_price_pln"] = current_price
             car["price_change_count"] = 0
             car["last_price_change_date"] = ""
+            # uzupełnij pola uszkodzenia dla nowych rekordów
+            car["is_damaged"] = 1 if car.get("is_damaged") else 0
+            car["condition_note"] = car.get("condition_note") or ""
 
             existing[listing_id] = car
             new_count += 1

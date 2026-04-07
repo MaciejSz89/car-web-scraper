@@ -14,6 +14,7 @@ from utils import safe_int
 
 MIN_COMPARISON_GROUP_SIZE = 5
 MIN_LOW_CONFIDENCE_GROUP_SIZE = 3
+DAMAGE_PENALTY = 30
 
 SEGMENT_RULES = [
     {"year": 1, "mileage": 20_000, "power": 15, "engine": 200, "allow_gearbox_mismatch": False, "allow_engine_mismatch": False},
@@ -63,6 +64,8 @@ def _read_active_cars(csv_file: str) -> list[dict[str, Any]]:
                 "initial_price_pln": safe_int(row.get("initial_price_pln")),
                 "lowest_price_pln": safe_int(row.get("lowest_price_pln")),
                 "price_change_count": safe_int(row.get("price_change_count")) or 0,
+                "is_damaged": str(row.get("is_damaged")).lower() in ("1", "true", "yes"),
+                "condition_note": row.get("condition_note") or None,
             })
 
     return cars
@@ -192,6 +195,11 @@ def _calculate_market_score(target: dict[str, Any], group: list[dict[str, Any]],
         penalty = fallback_level * 5
         score -= penalty
         reasons.append(f"kara za fallback segmentacji: -{penalty}")
+
+    # kara za wykryte uszkodzenie (informacja z list-card / CSV)
+    if target.get("is_damaged"):
+        score -= DAMAGE_PENALTY
+        reasons.append(f"znaleziono informacje o uszkodzeniu oferty: -{DAMAGE_PENALTY}")
 
     return max(0, min(100, score)), reasons
 
