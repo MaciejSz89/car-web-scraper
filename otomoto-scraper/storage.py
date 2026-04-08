@@ -6,6 +6,16 @@ from datetime import date, datetime
 from utils import safe_int
 
 
+def parse_csv_date(value: str) -> date:
+    for date_format in ("%Y-%m-%d", "%d.%m.%Y"):
+        try:
+            return datetime.strptime(value, date_format).date()
+        except ValueError:
+            continue
+
+    raise ValueError(f"Unsupported date format: {value}")
+
+
 def read_existing_cars(csv_file: str) -> dict[str, dict]:
     """
     Zwraca słownik:
@@ -53,14 +63,26 @@ def read_existing_cars(csv_file: str) -> dict[str, dict]:
             if "condition_note" not in row:
                 row["condition_note"] = ""
 
+            if "seller_type" not in row:
+                row["seller_type"] = ""
+                # enrichment fields (can be absent in older CSVs)
+                if "details_status" not in row:
+                    row["details_status"] = ""  # e.g. pending,fetched,failed
+
+                if "details_priority" not in row:
+                    row["details_priority"] = ""  # integer-like priority
+
+                if "details_fetched_at" not in row:
+                    row["details_fetched_at"] = ""
+
             cars_by_id[listing_id] = row
 
     return cars_by_id
 
 
 def calculate_days_on_site(first_seen_date_str: str, last_seen_date_str: str) -> int:
-    first_seen = datetime.strptime(first_seen_date_str, "%Y-%m-%d").date()
-    last_seen = datetime.strptime(last_seen_date_str, "%Y-%m-%d").date()
+    first_seen = parse_csv_date(first_seen_date_str)
+    last_seen = parse_csv_date(last_seen_date_str)
     return (last_seen - first_seen).days
 
 
@@ -81,6 +103,11 @@ def upsert_cars_to_csv(cars: list[dict], csv_file: str) -> tuple[int, int]:
         "gearbox",
         "year",
         "location",
+        "seller_type",
+            # enrichment state columns
+            "details_status",
+            "details_priority",
+            "details_fetched_at",
         "is_damaged",
         "condition_note",
         "first_seen_date",
@@ -130,6 +157,11 @@ def upsert_cars_to_csv(cars: list[dict], csv_file: str) -> tuple[int, int]:
             row["gearbox"] = car["gearbox"]
             row["year"] = car["year"]
             row["location"] = car["location"]
+            row["seller_type"] = car.get("seller_type") or ""
+                # preserve enrichment defaults for new records
+                car["details_status"] = car.get("details_status") or ""
+                car["details_priority"] = car.get("details_priority") or ""
+                car["details_fetched_at"] = car.get("details_fetched_at") or ""
             # aktualizuj informacje o stanie/uszkodzeniu
             row["is_damaged"] = 1 if car.get("is_damaged") else 0
             row["condition_note"] = car.get("condition_note") or ""
@@ -174,6 +206,7 @@ def upsert_cars_to_csv(cars: list[dict], csv_file: str) -> tuple[int, int]:
             car["lowest_price_pln"] = current_price
             car["price_change_count"] = 0
             car["last_price_change_date"] = ""
+            car["seller_type"] = car.get("seller_type") or ""
             # uzupełnij pola uszkodzenia dla nowych rekordów
             car["is_damaged"] = 1 if car.get("is_damaged") else 0
             car["condition_note"] = car.get("condition_note") or ""

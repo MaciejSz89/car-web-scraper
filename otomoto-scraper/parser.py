@@ -92,6 +92,21 @@ def extract_location(article: Tag) -> Optional[str]:
     return None
 
 
+def extract_seller_type(article: Tag) -> Optional[str]:
+    for p in article.find_all("p"):
+        text = clean_text(p.get_text(" ", strip=True))
+        if not text:
+            continue
+
+        seller_label = text.split("•", 1)[0].strip().lower()
+        if seller_label == "prywatny sprzedawca":
+            return "private"
+        if seller_label == "firma":
+            return "business"
+
+    return None
+
+
 def extract_cars_from_json_ld(html: str) -> list[dict]:
     soup = BeautifulSoup(html, "html.parser")
     script = soup.find("script", id="listing-json-ld")
@@ -127,6 +142,7 @@ def extract_cars_from_json_ld(html: str) -> list[dict]:
             "gearbox": None,
             "year": None,
             "location": None,
+            "seller_type": None,
         })
 
     return cars
@@ -155,6 +171,7 @@ def parse_car(article: Tag) -> Optional[dict]:
     gearbox = extract_parameter(article, "gearbox")
     year = to_int(extract_parameter(article, "year"))
     location = extract_location(article)
+    seller_type = extract_seller_type(article)
 
     # szybkie sprawdzenie informacji o uszkodzeniu z tekstów karty
     combined_text = " ".join(filter(None, [title, subtitle]))
@@ -174,6 +191,7 @@ def parse_car(article: Tag) -> Optional[dict]:
         "gearbox": gearbox,
         "year": year,
         "location": location,
+        "seller_type": seller_type,
         "is_damaged": 1 if is_damaged else 0,
         "condition_note": condition_note or "",
     }

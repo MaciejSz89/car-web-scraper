@@ -15,6 +15,8 @@ from utils import safe_int
 MIN_COMPARISON_GROUP_SIZE = 5
 MIN_LOW_CONFIDENCE_GROUP_SIZE = 3
 DAMAGE_PENALTY = 30
+PRIVATE_SELLER_BONUS = 5
+BUSINESS_SELLER_PENALTY = 2
 
 SEGMENT_RULES = [
     {"year": 1, "mileage": 20_000, "power": 15, "engine": 200, "allow_gearbox_mismatch": False, "allow_engine_mismatch": False},
@@ -32,6 +34,7 @@ class AnalyticsResult:
     title: str | None
     link: str | None
     price_pln: int | None
+    seller_type: str | None
     market_score: int
     confidence_score: int
     preference_score: int
@@ -64,6 +67,7 @@ def _read_active_cars(csv_file: str) -> list[dict[str, Any]]:
                 "initial_price_pln": safe_int(row.get("initial_price_pln")),
                 "lowest_price_pln": safe_int(row.get("lowest_price_pln")),
                 "price_change_count": safe_int(row.get("price_change_count")) or 0,
+                "seller_type": (row.get("seller_type") or "").strip() or None,
                 "is_damaged": str(row.get("is_damaged")).lower() in ("1", "true", "yes"),
                 "condition_note": row.get("condition_note") or None,
             })
@@ -176,6 +180,14 @@ def _calculate_market_score(target: dict[str, Any], group: list[dict[str, Any]],
         score += 4
         reasons.append("niewiele zmian ceny")
 
+    seller_type = target.get("seller_type")
+    if seller_type == "private":
+        score += PRIVATE_SELLER_BONUS
+        reasons.append(f"premia za prywatnego sprzedawce: +{PRIVATE_SELLER_BONUS}")
+    elif seller_type == "business":
+        score -= BUSINESS_SELLER_PENALTY
+        reasons.append(f"lekka kara za oferte firmowa: -{BUSINESS_SELLER_PENALTY}")
+
     missing_fields = sum(
         value in (None, "")
         for value in [
@@ -274,6 +286,7 @@ def analyze_query_csv(query_name: str, csv_file: str) -> list[AnalyticsResult]:
             title=car.get("title"),
             link=car.get("link"),
             price_pln=car.get("price_pln"),
+            seller_type=car.get("seller_type"),
             market_score=market_score,
             confidence_score=confidence_score,
             preference_score=preference_score,
