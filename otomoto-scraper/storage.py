@@ -1,6 +1,7 @@
 import csv
 import os
 from datetime import date, datetime
+from datetime import timezone
 
 
 from utils import safe_int
@@ -243,6 +244,49 @@ def upsert_cars_to_csv(cars: list[dict], csv_file: str) -> tuple[int, int]:
         print("\nLista nowych ogłoszeń:")
         for item in new_items:
             print(f'- {item["listing_id"]} | {item["title"]} | {item["link"]}')
+        # Dodaj nowe oferty do pliku kolejki wzbogacania (enrichment_queue.csv)
+        try:
+            queue_file = os.path.join(os.path.dirname(csv_file), "enrichment_queue.csv")
+            # wczytaj istniejące listing_id z kolejki, by uniknąć duplikatów
+            existing_ids = set()
+            if os.path.exists(queue_file):
+                try:
+                    with open(queue_file, "r", newline="", encoding="utf-8-sig") as qf:
+                        qreader = csv.DictReader(qf, delimiter=";")
+                        for qrow in qreader:
+                            lid = qrow.get("listing_id")
+                            if lid:
+                                existing_ids.add(lid)
+                except Exception:
+                    # jeśli nie uda się odczytać, kontynuujemy i nadpiszemy
+                    existing_ids = set()
+
+            to_append = []
+            for item in new_items:
+                lid = item.get("listing_id")
+                if not lid or lid in existing_ids:
+                    continue
+                to_append.append({
+                    "listing_id": lid,
+                    "link": item.get("link", ""),
+                    "priority": 50,
+                    "reason": "new",
+                    "selected_at": datetime.utcnow().replace(tzinfo=timezone.utc).isoformat(),
+                })
+
+            if to_append:
+                write_header = not os.path.exists(queue_file)
+                os.makedirs(os.path.dirname(queue_file), exist_ok=True)
+                with open(queue_file, "a", newline="", encoding="utf-8-sig") as qf:
+                    fieldnames_q = ["listing_id", "link", "priority", "reason", "selected_at"]
+                    writer = csv.DictWriter(qf, fieldnames=fieldnames_q, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+                    if write_header:
+                        writer.writeheader()
+                    for row in to_append:
+                        writer.writerow(row)
+                print(f"Dodano {len(to_append)} pozycji do kolejki wzbogacania: {queue_file}")
+        except Exception as e:
+            print(f"Nie udało się zapisać do enrichment_queue: {e}")
     else:
         print("\nBrak nowych ogłoszeń.")
 
