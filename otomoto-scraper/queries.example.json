@@ -33,5 +33,12 @@
     "csv_file": "kia-sportage.csv",
     "max_pages": 44,
     "enabled": true
+  },
+  {
+    "name": "Volkswagen Golf Sportsvan",
+    "start_url": "https://www.otomoto.pl/osobowe/volkswagen/golf-sportsvan/od-2016?search%5Bfilter_enum_fuel_type%5D=petrol",
+    "csv_file": "volkswagen-golf-sportsvan.csv",
+    "max_pages": 44,
+    "enabled": true
   }
 ]

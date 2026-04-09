@@ -158,10 +158,10 @@ def upsert_cars_to_csv(cars: list[dict], csv_file: str) -> tuple[int, int]:
             row["year"] = car["year"]
             row["location"] = car["location"]
             row["seller_type"] = car.get("seller_type") or ""
-                # preserve enrichment defaults for new records
-                car["details_status"] = car.get("details_status") or ""
-                car["details_priority"] = car.get("details_priority") or ""
-                car["details_fetched_at"] = car.get("details_fetched_at") or ""
+            # preserve enrichment defaults for new records
+            car["details_status"] = car.get("details_status") or ""
+            car["details_priority"] = car.get("details_priority") or ""
+            car["details_fetched_at"] = car.get("details_fetched_at") or ""
             # aktualizuj informacje o stanie/uszkodzeniu
             row["is_damaged"] = 1 if car.get("is_damaged") else 0
             row["condition_note"] = car.get("condition_note") or ""

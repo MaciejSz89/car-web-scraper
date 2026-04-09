@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import argparse
+import logging
+
 from analytics import save_query_analysis
 from scraper import get_html_pages
 from parser import get_cars_from_content
@@ -17,7 +20,7 @@ from config import (
     SESSION_STATE_FILE,
 )
 
-def process_query(query: dict[str, str | int]) -> None:
+def process_query(query: dict[str, str | int], headless: bool = HEADLESS) -> None:
     query_name = str(query["name"])
     start_url = str(query["start_url"])
     csv_file = str(query["csv_file"])
@@ -27,7 +30,7 @@ def process_query(query: dict[str, str | int]) -> None:
 
     html_pages = get_html_pages(
         start_url=start_url,
-        headless=HEADLESS,
+        headless=headless,
         wait_ms=WAIT_MS,
         max_pages=max_pages,
         post_navigation_delay_range_ms=POST_NAVIGATION_DELAY_RANGE_MS,
@@ -83,22 +86,64 @@ def process_query(query: dict[str, str | int]) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Otomoto scraper")
+    parser.add_argument(
+        "--headless",
+        dest="headless",
+        action="store_true",
+        help="Uruchom przeglądarkę w trybie headless (nadpisuje config).",
+    )
+    parser.add_argument(
+        "--no-headless",
+        dest="headless",
+        action="store_false",
+        help="Uruchom przeglądarkę w trybie okienkowym (nadpisuje config).",
+    )
+    parser.add_argument(
+        "--verbose", action="store_true", help="Włącz verbose logging (DEBUG)."
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Wyświetl plan kwerend bez pobierania stron ani zapisu.",
+    )
+
+    args = parser.parse_args()
+
+    # configure logging
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+    chosen_headless = args.headless if args.headless is not None else HEADLESS
+
     failed_queries: list[str] = []
+
+    if args.dry_run:
+        logging.info("DRY RUN: nie będą pobierane strony, tylko pokazany plan kwerend")
+        for query in QUERIES:
+            logging.info("Kwerenda: %s -> %s (max_pages=%s)", query.get("name"), query.get("start_url"), query.get("max_pages"))
+        return
 
     for query in QUERIES:
         try:
-            process_query(query)
+            process_query(query, headless=chosen_headless)
         except Exception as exc:
             query_name = str(query["name"])
             failed_queries.append(query_name)
-            print(f"Błąd w kwerendzie '{query_name}': {exc}")
+            logging.exception("Błąd w kwerendzie '%s'", query_name)
 
-    print(f"\nZakończono przetwarzanie kwerend: {len(QUERIES) - len(failed_queries)}/{len(QUERIES)} sukcesów.")
+    logging.info(
+        "Zakończono przetwarzanie kwerend: %d/%d sukcesów.",
+        len(QUERIES) - len(failed_queries),
+        len(QUERIES),
+    )
 
     if failed_queries:
-        print("Nieudane kwerendy:")
+        logging.warning("Nieudane kwerendy:")
         for query_name in failed_queries:
-            print(f"- {query_name}")
+            logging.warning("- %s", query_name)
 
 
 if __name__ == "__main__":

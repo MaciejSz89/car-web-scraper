@@ -5,6 +5,13 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from playwright.sync_api import sync_playwright, Page, TimeoutError as PlaywrightTimeoutError
+import traceback
+import logging
+from datetime import datetime
+import os
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+logger = logging.getLogger(__name__)
 
 
 def build_page_url(base_url: str, page_number: int) -> str:
@@ -23,7 +30,7 @@ def build_page_url(base_url: str, page_number: int) -> str:
 def wait_random_delay(page: Page, delay_range_ms: tuple[int, int], label: str) -> None:
     min_delay_ms, max_delay_ms = delay_range_ms
     delay_ms = random.randint(min_delay_ms, max_delay_ms)
-    print(f"{label}: czekam {delay_ms} ms")
+    logger.info("%s: czekam %d ms", label, delay_ms)
     page.wait_for_timeout(delay_ms)
 
 
@@ -65,9 +72,9 @@ def navigate_with_retry(
             wait_random_delay(page, post_navigation_delay_range_ms, "Po wejściu na stronę")
             return page.url
         except PlaywrightTimeoutError as exc:
-            print(f"Timeout podczas wejścia na {url} (próba {attempt}/{max_navigation_retries}): {exc}")
+            logger.warning("Timeout podczas wejścia na %s (próba %d/%d): %s", url, attempt, max_navigation_retries, exc)
         except Exception as exc:
-            print(f"Błąd podczas wejścia na {url} (próba {attempt}/{max_navigation_retries}): {exc}")
+            logger.warning("Błąd podczas wejścia na %s (próba %d/%d): %s", url, attempt, max_navigation_retries, exc)
 
         if attempt < max_navigation_retries:
             wait_random_delay(page, retry_backoff_delay_range_ms, "Backoff przed ponowną próbą")
@@ -162,7 +169,7 @@ def wait_until_article_count_stabilizes(
 
     for round_no in range(1, max_rounds + 1):
         current_count = page.locator("article[data-id]").count()
-        print(f"Runda {round_no}: article[data-id] = {current_count}")
+        logger.info("Runda %d: article[data-id] = %d", round_no, current_count)
 
         if current_count == previous_count:
             same_count_rounds += 1
@@ -197,10 +204,21 @@ def get_html_pages(
     max_navigation_retries: int,
     session_state_file: Path,
 ) -> list[str]:
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=headless)
-        context = browser.new_context(**build_browser_context_kwargs(session_state_file))
+    """Pobierz HTML kilku stron z paginacji, z odpornością na zamknięcie przeglądarki.
+
+    Zwraca listę HTMLi stron.
+    """
+
+    def _create_browser_context_page(pw, headless_flag, session_state_path):
+        browser = pw.chromium.launch(headless=headless_flag)
+        context = browser.new_context(**build_browser_context_kwargs(session_state_path))
         page = context.new_page()
+        return browser, context, page
+
+    recovery_max = 3
+
+    with sync_playwright() as p:
+        browser, context, page = _create_browser_context_page(p, headless, session_state_file)
 
         pages_html: list[str] = []
         visited_urls: set[str] = set()
@@ -208,55 +226,133 @@ def get_html_pages(
 
         for page_number in range(1, max_pages + 1):
             if not next_url:
-                print("Brak kolejnego adresu do odwiedzenia. Kończę paginację.")
+                logger.info("Brak kolejnego adresu do odwiedzenia. Kończę paginację.")
                 break
 
-            print(f"\nOtwieram stronę {page_number}: {next_url}")
+            logger.info("\nOtwieram stronę %d: %s", page_number, next_url)
 
-            current_url = navigate_with_retry(
-                page=page,
-                url=next_url,
-                wait_ms=wait_ms,
-                post_navigation_delay_range_ms=post_navigation_delay_range_ms,
-                retry_backoff_delay_range_ms=retry_backoff_delay_range_ms,
-                max_navigation_retries=max_navigation_retries,
-            )
-            normalized_current_url = normalize_url_for_visit_check(current_url)
+            per_page_retries = 0
+            while True:
+                try:
+                    current_url = navigate_with_retry(
+                        page=page,
+                        url=next_url,
+                        wait_ms=wait_ms,
+                        post_navigation_delay_range_ms=post_navigation_delay_range_ms,
+                        retry_backoff_delay_range_ms=retry_backoff_delay_range_ms,
+                        max_navigation_retries=max_navigation_retries,
+                    )
+                    normalized_current_url = normalize_url_for_visit_check(current_url)
 
-            if normalized_current_url in visited_urls:
-                print(f"Wykryto ponowne przekierowanie na odwiedzony adres: {current_url}. Zatrzymuję paginację.")
-                break
+                    if normalized_current_url in visited_urls:
+                        logger.info("Wykryto ponowne przekierowanie na odwiedzony adres: %s. Zatrzymuję paginację.", current_url)
+                        next_url = None
+                        break
 
-            visited_urls.add(normalized_current_url)
+                    visited_urls.add(normalized_current_url)
 
-            initial_count = page.locator("article[data-id]").count()
-            print("article[data-id] na starcie:", initial_count)
+                    initial_count = page.locator("article[data-id]").count()
+                    logger.info("article[data-id] na starcie: %d", initial_count)
 
-            final_count = wait_until_article_count_stabilizes(
-                page,
-                pause_range_ms=scroll_pause_range_ms,
-                scroll_step_range_px=scroll_step_range_px,
-            )
-            print("article[data-id] po stabilizacji:", final_count)
+                    final_count = wait_until_article_count_stabilizes(
+                        page,
+                        pause_range_ms=scroll_pause_range_ms,
+                        scroll_step_range_px=scroll_step_range_px,
+                    )
+                    logger.info("article[data-id] po stabilizacji: %d", final_count)
 
-            if final_count == 0:
-                print("Brak ofert na stronie. Zatrzymuję pobieranie kolejnych stron.")
-                break
+                    if final_count == 0:
+                        logger.info("Brak ofert na stronie. Zatrzymuję pobieranie kolejnych stron.")
+                        next_url = None
+                        break
 
-            pages_html.append(page.content())
-            session_state_file.parent.mkdir(parents=True, exist_ok=True)
-            context.storage_state(path=str(session_state_file))
+                    pages_html.append(page.content())
+                    session_state_file.parent.mkdir(parents=True, exist_ok=True)
+                    try:
+                        context.storage_state(path=str(session_state_file))
+                    except Exception as exc:
+                        logger.warning("Błąd podczas zapisu storage_state: %s", exc)
 
-            next_url = get_next_page_url(page, current_url)
-            if not next_url:
-                print("Nie znaleziono linku do następnej strony. To wygląda na koniec wyników.")
-                break
+                    next_url = get_next_page_url(page, current_url)
+                    if not next_url:
+                        logger.info("Nie znaleziono linku do następnej strony. To wygląda na koniec wyników.")
+                        break
 
-            if page_number < max_pages:
-                wait_random_delay(page, page_break_delay_range_ms, "Przerwa przed następną stroną")
+                    if page_number < max_pages:
+                        wait_random_delay(page, page_break_delay_range_ms, "Przerwa przed następną stroną")
 
-        context.close()
-        browser.close()
+                    break
+
+                except PlaywrightTimeoutError as exc:
+                    logger.warning("Timeout podczas przetwarzania strony %s: %s", next_url, exc)
+                    per_page_retries += 1
+                    if per_page_retries > recovery_max:
+                        raise
+                    wait_random_delay(page, retry_backoff_delay_range_ms, "Backoff po timeoutie")
+                    continue
+
+                except Exception as exc:
+                    msg = str(exc).lower()
+                    logger.error("Błąd podczas przetwarzania strony %s: %s", next_url, exc)
+                    traceback.print_exc()
+
+                    # zapisz snapshot strony dla diagnostyki
+                    try:
+                        debug_dir = session_state_file.parent / "debug-errors"
+                        debug_dir.mkdir(parents=True, exist_ok=True)
+                        ts = datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
+                        safe_name = (next_url.replace('https://', '').replace('http://', '').replace('/', '_')[:100])
+                        snapshot_path = debug_dir / f"snapshot_{safe_name}_{ts}.html"
+                        try:
+                            html = page.content()
+                            snapshot_path.write_text(html, encoding='utf-8')
+                            logger.info("Zapisano snapshot strony: %s", snapshot_path)
+                        except Exception as e2:
+                            logger.warning("Nie udało się zapisać snapshotu HTML: %s", e2)
+                    except Exception:
+                        logger.exception("Błąd podczas tworzenia katalogu debug-errors")
+
+                    # jeśli przeglądarka lub kontekst zostały zamknięte, spróbuj odtworzyć
+                    if "closed" in msg or "target page, context or browser has been closed" in msg:
+                        per_page_retries += 1
+                        logger.info("Wykryto zamknięcie przeglądarki/contextu (próba odtworzenia %d/%d)", per_page_retries, recovery_max)
+                        try:
+                            # log pid jeśli dostępny
+                            try:
+                                proc = getattr(browser, 'process', None)
+                                pid_val = proc.pid if proc is not None else None
+                                logger.info("Browser process pid: %s", pid_val)
+                            except Exception:
+                                logger.debug("Nie udało się odczytać pid procesu przeglądarki")
+                            context.close()
+                        except Exception:
+                            pass
+                        try:
+                            browser.close()
+                        except Exception:
+                            pass
+
+                        if per_page_retries > recovery_max:
+                            raise RuntimeError(f"Nie udało się odtworzyć przeglądarki po {recovery_max} próbach")
+
+                        # odtwórz browser/context/page
+                        browser, context, page = _create_browser_context_page(p, headless, session_state_file)
+                        wait_random_delay(page, retry_backoff_delay_range_ms, "Backoff przed ponowną próbą (recreate)")
+                        continue
+
+                    # inne błędy - rethrow
+                    raise
+
+        try:
+            context.close()
+        except Exception:
+            pass
+
+        try:
+            browser.close()
+        except Exception:
+            pass
+
         return pages_html
 
 
