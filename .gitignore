@@ -5,3 +5,21 @@ bin/
 obj/
 otomoto-scraper/queries.json
 otomoto-scraper/preferences.json
+# Artifacts and debug outputs
+artifacts/
+*.zip
+*.log
+
+# Playwright / session state and snapshots
+.playwright-session-state.json
+.session-state*.json
+otomoto-scraper/debug-errors/
+*_debug-*.html
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Editor configs
+.vscode/
+.idea/
