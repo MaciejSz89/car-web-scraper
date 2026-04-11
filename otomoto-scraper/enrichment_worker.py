@@ -4,7 +4,7 @@ import argparse
 import csv
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from urllib.error import URLError
 from urllib.request import Request, urlopen
@@ -12,14 +12,23 @@ from urllib.request import Request, urlopen
 from bs4 import BeautifulSoup
 
 from config import DATA_DIR
+from utils import clean_text, safe_int
 
 
 DEFAULT_TIMEOUT_SECONDS = 20
+DEFAULT_FETCH_COOLDOWN_DAYS = 7
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/135.0.0.0 Safari/537.36"
 )
+
+BUCKET_RANKS = {
+    "ignore": 0,
+    "watch": 1,
+    "candidate": 2,
+    "high-priority": 3,
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -49,6 +58,12 @@ def parse_args() -> argparse.Namespace:
         "--retry-failed",
         action="store_true",
         help="Re-process listings previously marked as failed.",
+    )
+    parser.add_argument(
+        "--cooldown-days",
+        type=int,
+        default=DEFAULT_FETCH_COOLDOWN_DAYS,
+        help="Skip re-fetching listings enriched within the last N days.",
     )
     return parser.parse_args()
 
@@ -82,6 +97,170 @@ def _extract_json_ld(soup: BeautifulSoup) -> list[Any]:
     return payloads
 
 
+def _extract_next_data(soup: BeautifulSoup) -> dict[str, Any] | None:
+    script = soup.find("script", attrs={"id": "__NEXT_DATA__", "type": "application/json"})
+    if not script:
+        return None
+
+    raw = script.string or script.get_text(strip=True)
+    if not raw:
+        return None
+
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+    return payload if isinstance(payload, dict) else None
+
+
+def _find_nested_key(payload: Any, target_key: str) -> Any:
+    if isinstance(payload, dict):
+        if target_key in payload:
+            return payload[target_key]
+        for value in payload.values():
+            found = _find_nested_key(value, target_key)
+            if found is not None:
+                return found
+    elif isinstance(payload, list):
+        for item in payload:
+            found = _find_nested_key(item, target_key)
+            if found is not None:
+                return found
+    return None
+
+
+def _extract_advert(next_data: dict[str, Any] | None) -> dict[str, Any]:
+    if not next_data:
+        return {}
+
+    advert = _find_nested_key(next_data, "advert")
+    return advert if isinstance(advert, dict) else {}
+
+
+def _normalize_text_list(values: Any) -> list[str]:
+    normalized: list[str] = []
+    items = values if isinstance(values, list) else []
+    for item in items:
+        if isinstance(item, str):
+            text = clean_text(item)
+            if text:
+                normalized.append(text)
+            continue
+
+        if not isinstance(item, dict):
+            continue
+
+        for key in ("label", "name", "value", "text"):
+            text = clean_text(item.get(key))
+            if text:
+                normalized.append(text)
+                break
+
+    return normalized
+
+
+def _normalize_parameters(parameters: Any) -> dict[str, Any]:
+    if not isinstance(parameters, dict):
+        return {}
+
+    normalized: dict[str, Any] = {}
+    for key, value in parameters.items():
+        if isinstance(value, dict):
+            candidate = value.get("value")
+            if candidate is None:
+                candidate = value.get("label")
+            if candidate is None:
+                candidate = value.get("name")
+            if candidate is not None:
+                normalized[key] = candidate
+                continue
+
+        if isinstance(value, list):
+            list_values: list[Any] = []
+            for item in value:
+                if isinstance(item, dict):
+                    candidate = item.get("value")
+                    if candidate is None:
+                        candidate = item.get("label")
+                    if candidate is None:
+                        candidate = item.get("name")
+                    list_values.append(candidate)
+                else:
+                    list_values.append(item)
+            normalized[key] = [item for item in list_values if item not in (None, "")]
+            continue
+
+        normalized[key] = value
+
+    return normalized
+
+
+def _extract_dom_description(soup: BeautifulSoup) -> str | None:
+    for selector in (
+        '[data-testid*="description"]',
+        '[class*="description"]',
+    ):
+        node = soup.select_one(selector)
+        if not node:
+            continue
+        text = clean_text(node.get_text(" ", strip=True))
+        if text:
+            return text
+    return None
+
+
+def _extract_seller_summary(advert: dict[str, Any], soup: BeautifulSoup) -> dict[str, Any]:
+    seller = advert.get("seller")
+    summary: dict[str, Any] = {}
+    if isinstance(seller, dict):
+        for source_key, target_key in (
+            ("name", "name"),
+            ("type", "type"),
+            ("id", "id"),
+            ("slug", "slug"),
+        ):
+            value = seller.get(source_key)
+            if value not in (None, ""):
+                summary[target_key] = value
+
+        phone_numbers = seller.get("phoneNumbers") or advert.get("phoneNumbers")
+        if isinstance(phone_numbers, list) and phone_numbers:
+            summary["phone_numbers"] = [str(number) for number in phone_numbers if number not in (None, "")]
+
+    if summary:
+        return summary
+
+    seller_node = soup.select_one('[data-testid*="seller"]')
+    if not seller_node:
+        return {}
+
+    text = clean_text(seller_node.get_text(" ", strip=True))
+    return {"display_text": text} if text else {}
+
+
+def _collect_fields_present(payload: dict[str, Any]) -> list[str]:
+    fields: list[str] = []
+    for field in (
+        "page_title",
+        "meta_description",
+        "description",
+        "seller",
+        "price",
+        "equipment",
+        "parameters",
+        "ad_features",
+        "main_features",
+        "structured_data",
+        "next_data",
+    ):
+        value = payload.get(field)
+        if value in (None, "", [], {}):
+            continue
+        fields.append(field)
+    return fields
+
+
 def extract_detail_payload(html: str, url: str) -> dict[str, Any]:
     soup = BeautifulSoup(html, "html.parser")
     page_title = soup.title.get_text(" ", strip=True) if soup.title else None
@@ -92,15 +271,53 @@ def extract_detail_payload(html: str, url: str) -> dict[str, Any]:
         meta_description = meta_tag.get("content")
 
     json_ld_payloads = _extract_json_ld(soup)
+    next_data = _extract_next_data(soup)
+    advert = _extract_advert(next_data)
+    description = clean_text(advert.get("description")) or _extract_dom_description(soup)
+    parameters = _normalize_parameters(advert.get("parametersDict"))
+    equipment = _normalize_text_list(advert.get("equipment"))
+    ad_features = _normalize_text_list(advert.get("adFeatures"))
+    main_features = _normalize_text_list(advert.get("mainFeatures"))
+    seller = _extract_seller_summary(advert, soup)
 
-    return {
+    advert_price = advert.get("price")
+    if isinstance(advert_price, dict):
+        normalized_price: Any = {
+            key: value
+            for key, value in advert_price.items()
+            if value not in (None, "", [], {})
+        }
+    else:
+        normalized_price = advert_price
+
+    payload = {
         "url": url,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "page_title": page_title,
         "meta_description": meta_description,
         "json_ld_count": len(json_ld_payloads),
         "structured_data": json_ld_payloads,
+        "description": description,
+        "seller": seller,
+        "price": normalized_price,
+        "equipment": equipment,
+        "parameters": parameters,
+        "ad_features": ad_features,
+        "main_features": main_features,
+        "source": {
+            "next_data_present": bool(next_data),
+            "advert_keys": sorted(advert.keys()) if advert else [],
+        },
     }
+
+    if next_data is not None:
+        build_id = next_data.get("buildId")
+        next_data_summary = {"buildId": build_id} if build_id else {"present": True}
+        payload["next_data"] = next_data_summary
+
+    payload["fields_present"] = _collect_fields_present(payload)
+
+    return payload
 
 
 def write_detail_json(details_dir: str, listing_id: str, payload: dict[str, Any]) -> str:
@@ -139,6 +356,57 @@ def get_listing_enrichment_status(csv_file: str, listing_id: str) -> str | None:
     return None
 
 
+def get_listing_row(csv_file: str, listing_id: str) -> dict[str, str] | None:
+    if not os.path.exists(csv_file):
+        return None
+
+    _, rows = _read_csv_rows(csv_file)
+    for row in rows:
+        if row.get("listing_id") == listing_id:
+            return row
+
+    return None
+
+
+def parse_enrichment_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+
+    normalized = value.strip()
+    if not normalized:
+        return None
+
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+
+    return parsed.astimezone(timezone.utc)
+
+
+def is_in_cooldown(
+    fetched_at: str | None,
+    *,
+    cooldown_days: int,
+    now: datetime | None = None,
+) -> bool:
+    if cooldown_days <= 0:
+        return False
+
+    parsed = parse_enrichment_timestamp(fetched_at)
+    if parsed is None:
+        return False
+
+    current_time = now or datetime.now(timezone.utc)
+    return current_time - parsed < timedelta(days=cooldown_days)
+
+
 def update_listing_enrichment_status(
     csv_file: str,
     listing_id: str,
@@ -146,12 +414,24 @@ def update_listing_enrichment_status(
     status: str,
     fetched_at: str,
     priority: str | int | None = None,
+    based_on_price_pln: str | int | None = None,
+    based_on_last_seen_date: str | None = None,
+    based_on_decision_bucket: str | None = None,
+    fields_present: list[str] | None = None,
 ) -> bool:
     if not os.path.exists(csv_file):
         return False
 
     fieldnames, rows = _read_csv_rows(csv_file)
-    required_fields = ["details_status", "details_priority", "details_fetched_at"]
+    required_fields = [
+        "details_status",
+        "details_priority",
+        "details_fetched_at",
+        "details_based_on_price_pln",
+        "details_based_on_last_seen_date",
+        "details_based_on_decision_bucket",
+        "details_fields_present",
+    ]
     for field in required_fields:
         if field not in fieldnames:
             fieldnames.append(field)
@@ -164,6 +444,14 @@ def update_listing_enrichment_status(
         row["details_fetched_at"] = fetched_at
         if priority is not None:
             row["details_priority"] = str(priority)
+        if based_on_price_pln is not None:
+            row["details_based_on_price_pln"] = str(based_on_price_pln)
+        if based_on_last_seen_date is not None:
+            row["details_based_on_last_seen_date"] = based_on_last_seen_date
+        if based_on_decision_bucket is not None:
+            row["details_based_on_decision_bucket"] = based_on_decision_bucket
+        if fields_present is not None:
+            row["details_fields_present"] = ",".join(fields_present)
         updated = True
         break
 
@@ -197,11 +485,79 @@ def find_listing_csv(data_dir: str, listing_id: str, source_csv: str | None = No
     return None
 
 
+def get_analytics_file_path(data_dir: str, source_csv: str | None) -> str | None:
+    if not source_csv:
+        return None
+
+    stem, _ = os.path.splitext(source_csv)
+    analytics_file = os.path.join(data_dir, "analytics", f"{stem}-analysis.json")
+    return analytics_file if os.path.exists(analytics_file) else None
+
+
+def load_analytics_index(data_dir: str, source_csv: str | None) -> dict[str, dict[str, Any]]:
+    analytics_file = get_analytics_file_path(data_dir, source_csv)
+    if not analytics_file:
+        return {}
+
+    try:
+        with open(analytics_file, "r", encoding="utf-8") as file_handle:
+            payload = json.load(file_handle)
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+    if not isinstance(payload, list):
+        return {}
+
+    index: dict[str, dict[str, Any]] = {}
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        listing_id = str(item.get("listing_id") or "").strip()
+        if listing_id:
+            index[listing_id] = item
+    return index
+
+
+def get_current_decision_bucket(
+    data_dir: str,
+    source_csv: str | None,
+    listing_id: str,
+    analytics_cache: dict[str, dict[str, dict[str, Any]]],
+) -> str:
+    cache_key = source_csv or ""
+    if cache_key not in analytics_cache:
+        analytics_cache[cache_key] = load_analytics_index(data_dir, source_csv)
+
+    listing = analytics_cache[cache_key].get(listing_id) or {}
+    return str(listing.get("decision_bucket") or "").strip().lower()
+
+
+def should_bypass_cooldown(
+    row: dict[str, str] | None,
+    *,
+    current_decision_bucket: str,
+) -> bool:
+    if not row:
+        return False
+
+    current_price = safe_int(row.get("price_pln"))
+    previous_price = safe_int(row.get("details_based_on_price_pln"))
+    if current_price is not None and previous_price is not None and current_price != previous_price:
+        return True
+
+    previous_bucket = str(row.get("details_based_on_decision_bucket") or "").strip().lower()
+    if not previous_bucket or not current_decision_bucket:
+        return False
+
+    return BUCKET_RANKS.get(current_decision_bucket, -1) > BUCKET_RANKS.get(previous_bucket, -1)
+
+
 def process_queue_item(
     item: dict[str, str],
     *,
     data_dir: str,
     details_dir: str,
+    analytics_cache: dict[str, dict[str, dict[str, Any]]] | None = None,
     fetch_html: Callable[[str], str] = fetch_listing_html,
 ) -> dict[str, Any]:
     listing_id = str(item.get("listing_id") or "").strip()
@@ -217,6 +573,10 @@ def process_queue_item(
     if not csv_file:
         return {"listing_id": listing_id, "status": "failed", "reason": "listing not found in storage csv"}
 
+    current_row = get_listing_row(csv_file, listing_id) or {}
+    cache = analytics_cache if analytics_cache is not None else {}
+    current_decision_bucket = get_current_decision_bucket(data_dir, source_csv, listing_id, cache)
+
     try:
         html = fetch_html(link)
         payload = extract_detail_payload(html, link)
@@ -227,12 +587,17 @@ def process_queue_item(
             status="fetched",
             fetched_at=processed_at,
             priority=priority,
+            based_on_price_pln=current_row.get("price_pln") or "",
+            based_on_last_seen_date=current_row.get("last_seen_date") or "",
+            based_on_decision_bucket=current_decision_bucket,
+            fields_present=payload.get("fields_present") or [],
         )
         return {
             "listing_id": listing_id,
             "status": "fetched",
             "details_file": output_path,
             "csv_file": csv_file,
+            "decision_bucket": current_decision_bucket,
         }
     except (OSError, URLError, ValueError) as exc:
         update_listing_enrichment_status(
@@ -241,6 +606,9 @@ def process_queue_item(
             status="failed",
             fetched_at=processed_at,
             priority=priority,
+            based_on_price_pln=current_row.get("price_pln") or "",
+            based_on_last_seen_date=current_row.get("last_seen_date") or "",
+            based_on_decision_bucket=current_decision_bucket,
         )
         return {
             "listing_id": listing_id,
@@ -257,6 +625,7 @@ def run(
     details_dir: str | None = None,
     limit: int | None = None,
     retry_failed: bool = False,
+    cooldown_days: int = DEFAULT_FETCH_COOLDOWN_DAYS,
     fetch_html: Callable[[str], str] = fetch_listing_html,
 ) -> list[dict[str, Any]]:
     resolved_data_dir = data_dir or str(DATA_DIR)
@@ -265,6 +634,7 @@ def run(
 
     raw_queue = load_queue(resolved_queue_file)
     queue: list[dict[str, str]] = []
+    analytics_cache: dict[str, dict[str, dict[str, Any]]] = {}
 
     for item in raw_queue:
         listing_id = str(item.get("listing_id") or "").strip()
@@ -272,9 +642,21 @@ def run(
         csv_file = find_listing_csv(resolved_data_dir, listing_id, source_csv)
 
         if csv_file:
-            current_status = get_listing_enrichment_status(csv_file, listing_id)
+            current_row = get_listing_row(csv_file, listing_id)
+            current_status = (current_row or {}).get("details_status", "").strip().lower()
             if current_status == "fetched":
-                continue
+                fetched_at = (current_row or {}).get("details_fetched_at")
+                current_bucket = get_current_decision_bucket(
+                    resolved_data_dir,
+                    source_csv,
+                    listing_id,
+                    analytics_cache,
+                )
+                if is_in_cooldown(fetched_at, cooldown_days=cooldown_days) and not should_bypass_cooldown(
+                    current_row,
+                    current_decision_bucket=current_bucket,
+                ):
+                    continue
             if current_status == "failed" and not retry_failed:
                 continue
 
@@ -290,6 +672,7 @@ def run(
                 item,
                 data_dir=resolved_data_dir,
                 details_dir=resolved_details_dir,
+                analytics_cache=analytics_cache,
                 fetch_html=fetch_html,
             )
         )
@@ -312,6 +695,7 @@ def main() -> None:
         details_dir=args.details_dir,
         limit=args.limit,
         retry_failed=args.retry_failed,
+        cooldown_days=args.cooldown_days,
     )
 
 
