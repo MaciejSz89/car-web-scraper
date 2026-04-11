@@ -3,10 +3,13 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import os
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from config import ANALYTICS_DIR, NOTIFICATION_HISTORY_FILE, NOTIFICATION_STATE_FILE, QUERIES
 from preferences import get_query_preferences, load_preferences
@@ -20,6 +23,7 @@ DEFAULT_ALLOWED_BUCKETS = {"high-priority"}
 DEFAULT_MIN_FINAL_SCORE = 80
 SIGNIFICANT_PRICE_DROP_RATIO = 0.03
 NOTIFICATION_CHANNEL_LOG = "log"
+NOTIFICATION_CHANNEL_TELEGRAM = "telegram"
 
 BUCKET_RANKS = {
     "ignore": 0,
@@ -193,6 +197,32 @@ def _get_notification_filters(preferences: dict[str, Any], query_name: str) -> d
     return filters if isinstance(filters, dict) else {}
 
 
+def _get_notification_channels(preferences: dict[str, Any], query_name: str) -> list[dict[str, Any]]:
+    effective_preferences = get_query_preferences(preferences, query_name)
+    raw_channels = effective_preferences.get("notification_channels")
+
+    if not isinstance(raw_channels, list) or not raw_channels:
+        return [{"type": NOTIFICATION_CHANNEL_LOG}]
+
+    normalized_channels: list[dict[str, Any]] = []
+    for item in raw_channels:
+        if isinstance(item, str):
+            channel_type = item.strip().lower()
+            if channel_type:
+                normalized_channels.append({"type": channel_type})
+            continue
+
+        if not isinstance(item, dict):
+            continue
+
+        channel_type = str(item.get("type") or "").strip().lower()
+        if not channel_type:
+            continue
+        normalized_channels.append(dict(item) | {"type": channel_type})
+
+    return normalized_channels or [{"type": NOTIFICATION_CHANNEL_LOG}]
+
+
 def _is_notification_eligible(result: dict[str, Any], filters: dict[str, Any]) -> bool:
     min_final_score = safe_int(filters.get("min_final_score"))
     if min_final_score is None:
@@ -321,13 +351,14 @@ def _build_notification_record(
     row: dict[str, Any],
     result: dict[str, Any],
     event_type: str,
+    channel: str,
     now_iso: str,
 ) -> NotificationRecord:
     return NotificationRecord(
         listing_id=str(row.get("listing_id") or "").strip(),
         query_name=query_name,
         event_type=event_type,
-        notification_channel=NOTIFICATION_CHANNEL_LOG,
+        notification_channel=channel,
         notification_decision="send",
         notification_sent_at=now_iso,
         notification_status="sent",
@@ -341,7 +372,18 @@ def _build_notification_record(
     )
 
 
-def _emit_notification(record: NotificationRecord) -> None:
+def _format_notification_message(record: NotificationRecord) -> str:
+    return (
+        f"[{record.event_type}] {record.query_name}\n"
+        f"{record.title}\n"
+        f"Cena: {record.price_pln} PLN | final={record.final_score} | confidence={record.confidence_score}\n"
+        f"Bucket: {record.decision_bucket}\n"
+        f"Powod: {record.notification_reason_summary}\n"
+        f"{record.link}"
+    )
+
+
+def _emit_log_notification(record: NotificationRecord) -> NotificationRecord:
     logger.info(
         "POWIADOMIENIE [%s] %s | %s | %s | cena=%s | final=%s | %s",
         record.event_type,
@@ -352,6 +394,75 @@ def _emit_notification(record: NotificationRecord) -> None:
         record.final_score,
         record.link,
     )
+    return record
+
+
+def _resolve_channel_value(channel: dict[str, Any], key: str) -> str:
+    direct_value = str(channel.get(key) or "").strip()
+    if direct_value:
+        return direct_value
+
+    env_key = str(channel.get(f"{key}_env") or "").strip()
+    if env_key:
+        return str(os.environ.get(env_key) or "").strip()
+
+    return ""
+
+
+def _emit_telegram_notification(record: NotificationRecord, channel: dict[str, Any]) -> NotificationRecord:
+    bot_token = _resolve_channel_value(channel, "bot_token")
+    chat_id = _resolve_channel_value(channel, "chat_id")
+
+    if not bot_token or not chat_id:
+        logger.warning(
+            "Telegram notification skipped for listing_id=%s because bot_token/chat_id are missing.",
+            record.listing_id,
+        )
+        return NotificationRecord(
+            **(asdict(record) | {"notification_status": "failed", "notification_decision": "send"})
+        )
+
+    payload = {
+        "chat_id": chat_id,
+        "text": _format_notification_message(record),
+        "disable_web_page_preview": bool(channel.get("disable_web_page_preview", False)),
+    }
+    api_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    request = Request(
+        api_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json; charset=utf-8"},
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=10) as response:
+            response.read()
+        logger.info(
+            "Telegram notification sent for listing_id=%s query=%s event=%s",
+            record.listing_id,
+            record.query_name,
+            record.event_type,
+        )
+        return record
+    except (HTTPError, URLError, OSError) as exc:
+        logger.warning(
+            "Telegram notification failed for listing_id=%s query=%s event=%s reason=%s",
+            record.listing_id,
+            record.query_name,
+            record.event_type,
+            exc,
+        )
+        return NotificationRecord(
+            **(asdict(record) | {"notification_status": "failed", "notification_decision": "send"})
+        )
+
+
+def _emit_notification(record: NotificationRecord, channel: dict[str, Any]) -> NotificationRecord:
+    channel_type = str(channel.get("type") or NOTIFICATION_CHANNEL_LOG).strip().lower()
+    if channel_type == NOTIFICATION_CHANNEL_TELEGRAM:
+        return _emit_telegram_notification(record, channel)
+    return _emit_log_notification(record)
 
 
 def run(
@@ -374,6 +485,7 @@ def run(
         csv_file = str(query["csv_file"])
         analysis_results = load_analysis_results(csv_file)
         rows_by_id = read_existing_cars(csv_file)
+        channels = _get_notification_channels(preferences, query_name)
 
         for listing_id, row in rows_by_id.items():
             analysis_result = analysis_results.get(listing_id)
@@ -389,15 +501,17 @@ def run(
             if analysis_result is not None:
                 event_type = determine_notification_event(current_state, previous_state, today)
                 if event_type is not None:
-                    record = _build_notification_record(
-                        query_name=query_name,
-                        row=row,
-                        result=analysis_result,
-                        event_type=event_type,
-                        now_iso=now_iso,
-                    )
-                    _emit_notification(record)
-                    sent_records.append(record)
+                    for channel in channels:
+                        channel_type = str(channel.get("type") or NOTIFICATION_CHANNEL_LOG).strip().lower()
+                        record = _build_notification_record(
+                            query_name=query_name,
+                            row=row,
+                            result=analysis_result,
+                            event_type=event_type,
+                            channel=channel_type,
+                            now_iso=now_iso,
+                        )
+                        sent_records.append(_emit_notification(record, channel))
 
             next_states[listing_id] = current_state
 

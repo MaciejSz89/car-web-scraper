@@ -230,3 +230,72 @@ def test_notifications_emit_bucket_upgrade(tmp_path, monkeypatch):
 
     assert len(records) == 1
     assert records[0].event_type == "bucket-upgrade"
+
+
+def test_notifications_send_to_telegram_channel(tmp_path, monkeypatch):
+    today = date.today().isoformat()
+    csv_path = tmp_path / "cars.csv"
+    analytics_path = tmp_path / "analytics" / "cars-analysis.json"
+    state_path = tmp_path / "notification_state.csv"
+    history_path = tmp_path / "notification_history.csv"
+
+    _write_csv(csv_path, list(_base_csv_row(today).keys()), [_base_csv_row(today)])
+    _write_analysis(analytics_path, [_base_analysis_row()])
+
+    monkeypatch.setattr(notifications, "ANALYTICS_DIR", tmp_path / "analytics")
+    monkeypatch.setattr(notifications, "load_preferences", lambda: {
+        "profile_name": "test",
+        "global": {
+            "notification_filters": {
+                "min_final_score": 65,
+                "require_hard_filter_pass": True,
+                "allowed_buckets": ["candidate", "high-priority"],
+            },
+            "notification_channels": [
+                {
+                    "type": "telegram",
+                    "bot_token": "token-123",
+                    "chat_id": "chat-456",
+                    "disable_web_page_preview": True,
+                }
+            ],
+        },
+        "queries": {},
+    })
+
+    captured: dict[str, object] = {}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b'{"ok": true}'
+
+    def _fake_urlopen(request, timeout=0):
+        captured["url"] = request.full_url
+        captured["timeout"] = timeout
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        return _Response()
+
+    monkeypatch.setattr(notifications, "urlopen", _fake_urlopen)
+
+    records = notifications.run(
+        queries=[{"name": "Test Query", "csv_file": str(csv_path)}],
+        state_file=state_path,
+        history_file=history_path,
+    )
+
+    assert len(records) == 1
+    assert records[0].notification_channel == "telegram"
+    assert records[0].notification_status == "sent"
+    assert captured["url"] == "https://api.telegram.org/bottoken-123/sendMessage"
+    assert captured["timeout"] == 10
+    assert captured["body"] == {
+        "chat_id": "chat-456",
+        "text": notifications._format_notification_message(records[0]),
+        "disable_web_page_preview": True,
+    }

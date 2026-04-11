@@ -37,7 +37,16 @@
       "min_final_score": 65,
       "require_hard_filter_pass": true,
       "allowed_buckets": ["candidate", "high-priority"]
-    }
+    },
+    "notification_channels": [
+      "log",
+      {
+        "type": "telegram",
+        "bot_token_env": "OTOMOTO_TELEGRAM_BOT_TOKEN",
+        "chat_id_env": "OTOMOTO_TELEGRAM_CHAT_ID",
+        "disable_web_page_preview": true
+      }
+    ]
   },
   "queries": {
     "Kia Sportage": {

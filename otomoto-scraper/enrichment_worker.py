@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
@@ -30,6 +31,8 @@ BUCKET_RANKS = {
     "candidate": 2,
     "high-priority": 3,
 }
+
+logger = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
@@ -663,11 +666,23 @@ def process_queue_item(
     processed_at = datetime.now(timezone.utc).isoformat()
 
     if not listing_id or not link:
-        return {"listing_id": listing_id, "status": "skipped", "reason": "missing listing_id or link"}
+        return {
+            "listing_id": listing_id,
+            "status": "skipped",
+            "reason": "missing listing_id or link",
+            "source_csv": source_csv,
+            "link": link,
+        }
 
     csv_file = find_listing_csv(data_dir, listing_id, source_csv)
     if not csv_file:
-        return {"listing_id": listing_id, "status": "failed", "reason": "listing not found in storage csv"}
+        return {
+            "listing_id": listing_id,
+            "status": "failed",
+            "reason": "listing not found in storage csv",
+            "source_csv": source_csv,
+            "link": link,
+        }
 
     current_row = get_listing_row(csv_file, listing_id) or {}
     cache = analytics_cache if analytics_cache is not None else {}
@@ -696,6 +711,8 @@ def process_queue_item(
             "details_file": output_path,
             "csv_file": csv_file,
             "decision_bucket": current_decision_bucket,
+            "source_csv": source_csv,
+            "link": link,
         }
     except (OSError, URLError, ValueError) as exc:
         update_listing_enrichment_status(
@@ -713,6 +730,8 @@ def process_queue_item(
             "status": "failed",
             "csv_file": csv_file,
             "reason": str(exc),
+            "source_csv": source_csv,
+            "link": link,
         }
 
 
@@ -778,6 +797,17 @@ def run(
     fetched = sum(result.get("status") == "fetched" for result in results)
     failed = sum(result.get("status") == "failed" for result in results)
     skipped = sum(result.get("status") == "skipped" for result in results)
+    for result in results:
+        if result.get("status") != "failed":
+            continue
+        logger.warning(
+            "Enrichment failed for listing_id=%s source_csv=%s csv_file=%s reason=%s link=%s",
+            result.get("listing_id") or "",
+            result.get("source_csv") or "",
+            result.get("csv_file") or "",
+            result.get("reason") or "",
+            result.get("link") or "",
+        )
     print(
         f"Enrichment processed {len(results)} items: "
         f"{fetched} fetched, {failed} failed, {skipped} skipped."

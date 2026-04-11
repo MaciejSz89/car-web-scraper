@@ -214,6 +214,42 @@ def test_run_processes_queue(tmp_path):
     assert results[0]["status"] == "fetched"
 
 
+def test_run_logs_failed_items_with_listing_context(tmp_path, caplog):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    queue_file = data_dir / "enrichment_queue.csv"
+
+    with open(queue_file, "w", newline="", encoding="utf-8-sig") as file_handle:
+        writer = csv.DictWriter(
+            file_handle,
+            fieldnames=["listing_id", "link", "priority", "reason", "selected_at", "source_csv"],
+            delimiter=";",
+        )
+        writer.writeheader()
+        writer.writerow({
+            "listing_id": "MISSING1",
+            "link": "https://example.com/oferta",
+            "priority": "50",
+            "reason": "new",
+            "selected_at": "2026-04-11T10:00:00+00:00",
+            "source_csv": "cars.csv",
+        })
+
+    with caplog.at_level("WARNING"):
+        results = enrichment_worker.run(
+            queue_file=str(queue_file),
+            data_dir=str(data_dir),
+            details_dir=str(data_dir / "details"),
+            fetch_html=lambda url: DETAIL_HTML,
+        )
+
+    assert len(results) == 1
+    assert results[0]["status"] == "failed"
+    assert "listing_id=MISSING1" in caplog.text
+    assert "source_csv=cars.csv" in caplog.text
+    assert "reason=listing not found in storage csv" in caplog.text
+
+
 def test_parse_args_supports_cli_flags(monkeypatch):
     monkeypatch.setattr(
         sys,
