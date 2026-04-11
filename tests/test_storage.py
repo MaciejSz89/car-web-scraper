@@ -73,6 +73,9 @@ def test_upsert_creates_and_updates(tmp_path):
     assert "details_based_on_price_pln" in rows[0]
     assert "details_based_on_decision_bucket" in rows[0]
     assert "details_fields_present" in rows[0]
+    assert "details_description_excerpt" in rows[0]
+    assert "details_seller_name" in rows[0]
+    assert "details_enrichment_flags" in rows[0]
 
     # update price -> should increment updated_count and price_change_count
     car1_updated = make_sample_car("ID1", 9000)

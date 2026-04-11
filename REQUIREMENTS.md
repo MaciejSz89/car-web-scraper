@@ -19,53 +19,57 @@ Aktualizujemy go przy każdym nowym, zmienionym, wykonanym lub usuniętym wymaga
 
 ## Active Requirements
 
-| ID      | Status      | Obszar        | Wymaganie                                                                                                           | Uwagi                                                                                                                                        |
-| ------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| REQ-001 | done        | Scraping      | System ma pobierać listy ogłoszeń z Otomoto dla zdefiniowanych kwerend.                                             | Implemented: `otomoto-scraper` działa jako scrapper list.                                                                                    |
-| REQ-002 | done        | Storage       | System ma zapisywać historię ofert, w tym aktywność, daty obserwacji i zmiany cen.                                  | Implemented: CSV storage w `otomoto-scraper/storage.py`.                                                                                     |
-| REQ-003 | done        | Analytics     | System ma mieć osobną warstwę analityczną do wykrywania okazji cenowych.                                            | Implemented: `otomoto-scraper/analytics.py` jako analityka v1.                                                                               |
-| REQ-004 | done        | Analytics     | Okazje mają być wykrywane najpierw przez tani scoring oparty o dane z listingu.                                     | Implemented: market scoring bez enrichmentu dla większości ofert.                                                                            |
-| REQ-005 | done        | Enrichment    | Szczegółowe dane tekstowe mają być pobierane tylko dla wybranych ofert.                                             | Implemented: `enrichment_worker.py` pobiera szczegóły tylko z `enrichment_queue.csv` i zapisuje sidecar JSON dla wybranych ofert.            |
-| REQ-006 | planned     | LLM           | W późniejszym etapie system ma filtrować kandydatów z użyciem LLM.                                                  | LLM ma działać po wstępnym scoringu.                                                                                                         |
-| REQ-007 | planned     | Notifications | W końcowym etapie system ma wysyłać powiadomienia o okazjach.                                                       | Kanały: email lub Telegram.                                                                                                                  |
-| REQ-008 | done        | Analytics     | System ma definiować okazję relatywnie do porównywalnych ofert, a nie przez stały próg ceny.                        | Implemented: segmentacja i porównania do mediany/percentyli w `analytics.py`.                                                                |
-| REQ-009 | done        | Analytics     | Warstwa analityczna v1 ma wyliczać wstępny score tylko na podstawie danych dostępnych z listingu.                   | Implemented: deal_score v1 oparty na danych z listingów (lista ofert).                                                                       |
-| REQ-010 | done        | Analytics     | System ma grupować oferty do porównań w segmenty podobnych pojazdów.                                                | Implemented: segment rules + fallback logic w `analytics.py`.                                                                                |
-| REQ-011 | done        | Analytics     | Wstępny score ma składać się z wielu sygnałów, a nie tylko z samej ceny.                                            | Implemented: market position, freshness, price drop, stability, data-quality penalties.                                                      |
-| REQ-012 | done        | Analytics     | System ma zwracać wynik analityczny w postaci score oraz listy powodów, które wpłynęły na ocenę.                    | Implemented: `market_reasons` oraz `preference_reasons` w wynikach JSON.                                                                     |
-| REQ-013 | done        | Enrichment    | System ma kierować do enrichmentu tylko oferty spełniające reguły priorytetyzacji.                                  | Implemented: `enrichment_selector.py`/`enrichment_runner.py` wybierają kandydatów i tworzą kolejkę z priorytetami.                           |
-| REQ-014 | done        | Enrichment    | System nie ma pobierać szczegółów każdej oferty przy każdym przebiegu.                                              | Implemented: `enrichment_worker.py` pomija wpisy `fetched`, a `failed` powtarza tylko po `--retry-failed`.                                   |
-| REQ-015 | in-progress | LLM           | Do warstwy LLM mają trafiać tylko oferty wyselekcjonowane przez scoring i enrichment.                               | Spec defined; integration with LLM not implemented yet.                                                                                      |
-| REQ-016 | in-progress | Notifications | Powiadomienia mają być wysyłane tylko dla nowych lub istotnie zmienionych okazji.                                   | Potrzebna deduplikacja, aby nie wysyłać wielokrotnie tej samej oferty bez nowego sygnału.                                                    |
-| REQ-017 | planned     | Analytics     | Segment porównawczy ma zaczynać się od tej samej kwerendy lub modelu bazowego.                                      | Nie porównujemy ofert między różnymi modelami, jeśli nie ma jawnie zdefiniowanej relacji między nimi.                                        |
-| REQ-018 | planned     | Analytics     | Segment porównawczy ma używać reguł tolerancji dla rocznika, przebiegu i parametrów silnika.                        | Tolerancje mają być jawnie zdefiniowane i rozszerzane stopniowo tylko przy zbyt małej próbce.                                                |
-| REQ-019 | planned     | Analytics     | System ma stosować fallback segmentacji, gdy grupa porównawcza jest zbyt mała.                                      | Fallback ma rozszerzać tolerancje krokowo, zachowując spójność paliwa i skrzyni tak długo, jak to możliwe.                                   |
-| REQ-020 | planned     | Analytics     | System ma oznaczać niski poziom zaufania, gdy wynik opiera się na zbyt małej grupie porównawczej.                   | Mała próbka nie może generować mocnego sygnału okazji bez obniżenia confidence.                                                              |
-| REQ-021 | done        | Analytics     | `deal_score` v1 ma być liczbą znormalizowaną do zakresu `0-100`.                                                    | Implemented as `final_score` clamped to 0-100.                                                                                               |
-| REQ-022 | planned     | Analytics     | Głównym składnikiem `deal_score` ma być relacja ceny oferty do rynku segmentu porównawczego.                        | Cena względem mediany lub dolnych percentyli rynku ma mieć największy wpływ.                                                                 |
-| REQ-023 | planned     | Analytics     | `deal_score` ma uwzględniać dodatkowe sygnały czasowe i behawioralne.                                               | Co najmniej świeżość oferty, spadki ceny i aktywność zmian.                                                                                  |
-| REQ-024 | planned     | Analytics     | `deal_score` ma uwzględniać karę za niekompletność danych i niski confidence segmentu.                              | Oferta z brakami lub słabą grupą porównawczą nie może dostać maksymalnej oceny.                                                              |
-| REQ-025 | done        | Analytics     | Wynik analityczny ma zawierać osobno `deal_score` i `confidence_score`.                                             | Implemented as `market_score`/`final_score` and `confidence_score`.                                                                          |
-| REQ-026 | done        | Analytics     | Wynik analityczny ma klasyfikować oferty do poziomów decyzji.                                                       | Implemented: buckets `ignore`, `watch`, `candidate`, `high-priority`.                                                                        |
-| REQ-027 | done        | Enrichment    | Enrichment ma działać jako osobny etap po wstępnym scoringu.                                                        | Implemented: osobny `enrichment_worker.py` oraz opcjonalne uruchomienie z `main.py` przez `--run-enrichment`.                                |
-| REQ-028 | done        | Enrichment    | System ma nadawać priorytet ofertom kierowanym do enrichmentu.                                                      | Implemented: kolejka zapisuje `priority`; selektor uwzględnia świeżość, zmiany ceny i typ sprzedawcy.                                        |
-| REQ-029 | done        | Enrichment    | System ma ograniczać częstotliwość ponownego enrichmentu tej samej oferty.                                          | Implemented cooldown 7 dni z bypass po zmianie `price_pln` albo promocji `decision_bucket`; `failed` nadal wraca tylko z `--retry-failed`. |
-| REQ-030 | done        | Enrichment    | Wynik enrichmentu ma zapisywać moment pobrania i stan oferty, dla którego pobrano szczegóły.                        | Implemented pełny kontrakt CSV: `details_status`, `details_priority`, `details_fetched_at`, `details_based_on_*`, `details_fields_present`. |
-| REQ-031 | planned     | LLM           | Warstwa LLM ma oceniać tylko ograniczoną liczbę kandydatów po wcześniejszej filtracji.                              | Potrzebny limit kosztu i liczby analiz per przebieg.                                                                                         |
-| REQ-032 | planned     | LLM           | LLM ma zwracać ustrukturyzowany wynik oceny oferty.                                                                 | Co najmniej werdykt, poziom ryzyka, powody i rekomendację dalszego działania.                                                                |
-| REQ-033 | planned     | LLM           | LLM ma być filtrem jakościowym, a nie źródłem podstawowej wyceny okazji.                                            | Ocena cenowa ma pozostać po stronie analityki deterministycznej.                                                                             |
-| REQ-034 | planned     | Notifications | System ma deduplikować powiadomienia na poziomie oferty i typu zdarzenia.                                           | Ta sama oferta nie może generować powiadomienia przy każdym przebiegu bez nowego sygnału.                                                    |
-| REQ-035 | planned     | Notifications | System ma rozróżniać typy zdarzeń powiadomień.                                                                      | Np. nowa okazja, spadek ceny, ponowna aktywacja, przejście do wyższego bucketu.                                                              |
-| REQ-036 | planned     | Notifications | Powiadomienie ma zawierać skrót powodów decyzji.                                                                    | Co najmniej cena względem rynku, bucket, confidence i najważniejsze flagi.                                                                   |
-| REQ-037 | done        | Preferences   | System ma mieć osobną warstwę preferencji użytkownika niezależną od bazowej analityki rynku.                        | Implemented: `otomoto-scraper/preferences.py` with global + per-query profiles.                                                              |
-| REQ-038 | done        | Preferences   | System ma rozróżniać twarde filtry preferencji i miękkie preferencje rankingowe.                                    | Implemented: `hard_filters` and `soft_preferences` support.                                                                                  |
-| REQ-039 | done        | Preferences   | Preferencje mają dać się konfigurować globalnie i per kwerenda.                                                     | Implemented: merging of global and per-query prefs.                                                                                          |
-| REQ-040 | planned     | Analytics     | Wynik analityczny ma rozdzielać `market_score`, `preference_score` i `final_score`.                                 | `final_score` ma wynikać z rynku i preferencji, ale nie zastępować ich osobnych składowych.                                                  |
-| REQ-041 | planned     | Analytics     | System ma zwracać jawny wynik działania preferencji na ofertę.                                                      | Co najmniej `hard_filter_passed`, `preference_reasons` i zastosowane reguły.                                                                 |
-| REQ-042 | planned     | Storage       | System ma mieć zdefiniowany model danych dla wyniku analityki, enrichmentu, LLM i powiadomień.                      | Potrzebny stabilny kontrakt danych przed implementacją pipeline'u.                                                                           |
-| REQ-043 | done        | Parsing       | System ma wykrywać wzmianki o uszkodzeniu/kolizji na poziomie list-card i zapisać flagę do CSV.                     | Implemented: `detect_damage()` w `otomoto-scraper/utils.py`, pola `is_damaged`/`condition_note` zapisane w CSV.                              |
-| REQ-044 | done        | Tooling       | Repo ma narzędzie do lokalnej analizy CSV (`analyze.py`) do szybkiej weryfikacji scoringu.                          | Implemented: `analyze.py` zapisuje wyniki do `data/otomoto/analytics/` i drukuje top-oferty.                                                 |
-| REQ-045 | done        | Parsing       | System ma wykrywać typ sprzedawcy (`private`/`business`) z list-card, zapisywać go do CSV i uwzględniać w scoringu. | Implemented: parser list-card wykrywa `Prywatny sprzedawca`/`Firma`, zapisuje `seller_type` i stosuje lekką korektę w `analytics.py`.        |
+| ID      | Status      | Obszar        | Wymaganie                                                                                                                      | Uwagi                                                                                                                                                                                   |
+| ------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| REQ-001 | done        | Scraping      | System ma pobierać listy ogłoszeń z Otomoto dla zdefiniowanych kwerend.                                                        | Implemented: `otomoto-scraper` działa jako scrapper list.                                                                                                                               |
+| REQ-002 | done        | Storage       | System ma zapisywać historię ofert, w tym aktywność, daty obserwacji i zmiany cen.                                             | Implemented: CSV storage w `otomoto-scraper/storage.py`.                                                                                                                                |
+| REQ-003 | done        | Analytics     | System ma mieć osobną warstwę analityczną do wykrywania okazji cenowych.                                                       | Implemented: `otomoto-scraper/analytics.py` jako analityka v1.                                                                                                                          |
+| REQ-004 | done        | Analytics     | Okazje mają być wykrywane najpierw przez tani scoring oparty o dane z listingu.                                                | Implemented: market scoring bez enrichmentu dla większości ofert.                                                                                                                       |
+| REQ-005 | done        | Enrichment    | Szczegółowe dane tekstowe mają być pobierane tylko dla wybranych ofert.                                                        | Implemented: `enrichment_worker.py` pobiera szczegóły tylko z `enrichment_queue.csv` i zapisuje sidecar JSON dla wybranych ofert.                                                       |
+| REQ-006 | planned     | LLM           | W późniejszym etapie system ma filtrować kandydatów z użyciem LLM.                                                             | LLM ma działać po wstępnym scoringu.                                                                                                                                                    |
+| REQ-007 | planned     | Notifications | W końcowym etapie system ma wysyłać powiadomienia o okazjach.                                                                  | Kanały: email lub Telegram.                                                                                                                                                             |
+| REQ-008 | done        | Analytics     | System ma definiować okazję relatywnie do porównywalnych ofert, a nie przez stały próg ceny.                                   | Implemented: segmentacja i porównania do mediany/percentyli w `analytics.py`.                                                                                                           |
+| REQ-009 | done        | Analytics     | Warstwa analityczna v1 ma wyliczać wstępny score tylko na podstawie danych dostępnych z listingu.                              | Implemented: deal_score v1 oparty na danych z listingów (lista ofert).                                                                                                                  |
+| REQ-010 | done        | Analytics     | System ma grupować oferty do porównań w segmenty podobnych pojazdów.                                                           | Implemented: segment rules + fallback logic w `analytics.py`.                                                                                                                           |
+| REQ-011 | done        | Analytics     | Wstępny score ma składać się z wielu sygnałów, a nie tylko z samej ceny.                                                       | Implemented: market position, freshness, price drop, stability, data-quality penalties.                                                                                                 |
+| REQ-012 | done        | Analytics     | System ma zwracać wynik analityczny w postaci score oraz listy powodów, które wpłynęły na ocenę.                               | Implemented: `market_reasons` oraz `preference_reasons` w wynikach JSON.                                                                                                                |
+| REQ-013 | done        | Enrichment    | System ma kierować do enrichmentu tylko oferty spełniające reguły priorytetyzacji.                                             | Implemented: `enrichment_selector.py`/`enrichment_runner.py` wybierają kandydatów i tworzą kolejkę z priorytetami.                                                                      |
+| REQ-014 | done        | Enrichment    | System nie ma pobierać szczegółów każdej oferty przy każdym przebiegu.                                                         | Implemented: `enrichment_worker.py` pomija wpisy `fetched`, a `failed` powtarza tylko po `--retry-failed`.                                                                              |
+| REQ-015 | in-progress | LLM           | Do warstwy LLM mają trafiać tylko oferty wyselekcjonowane przez scoring i enrichment.                                          | Spec defined; integration with LLM not implemented yet.                                                                                                                                 |
+| REQ-016 | in-progress | Notifications | Powiadomienia mają być wysyłane tylko dla nowych lub istotnie zmienionych okazji.                                              | Potrzebna deduplikacja, aby nie wysyłać wielokrotnie tej samej oferty bez nowego sygnału.                                                                                               |
+| REQ-017 | planned     | Analytics     | Segment porównawczy ma zaczynać się od tej samej kwerendy lub modelu bazowego.                                                 | Nie porównujemy ofert między różnymi modelami, jeśli nie ma jawnie zdefiniowanej relacji między nimi.                                                                                   |
+| REQ-018 | planned     | Analytics     | Segment porównawczy ma używać reguł tolerancji dla rocznika, przebiegu i parametrów silnika.                                   | Tolerancje mają być jawnie zdefiniowane i rozszerzane stopniowo tylko przy zbyt małej próbce.                                                                                           |
+| REQ-019 | planned     | Analytics     | System ma stosować fallback segmentacji, gdy grupa porównawcza jest zbyt mała.                                                 | Fallback ma rozszerzać tolerancje krokowo, zachowując spójność paliwa i skrzyni tak długo, jak to możliwe.                                                                              |
+| REQ-020 | planned     | Analytics     | System ma oznaczać niski poziom zaufania, gdy wynik opiera się na zbyt małej grupie porównawczej.                              | Mała próbka nie może generować mocnego sygnału okazji bez obniżenia confidence.                                                                                                         |
+| REQ-021 | done        | Analytics     | `deal_score` v1 ma być liczbą znormalizowaną do zakresu `0-100`.                                                               | Implemented as `final_score` clamped to 0-100.                                                                                                                                          |
+| REQ-022 | planned     | Analytics     | Głównym składnikiem `deal_score` ma być relacja ceny oferty do rynku segmentu porównawczego.                                   | Cena względem mediany lub dolnych percentyli rynku ma mieć największy wpływ.                                                                                                            |
+| REQ-023 | planned     | Analytics     | `deal_score` ma uwzględniać dodatkowe sygnały czasowe i behawioralne.                                                          | Co najmniej świeżość oferty, spadki ceny i aktywność zmian.                                                                                                                             |
+| REQ-024 | planned     | Analytics     | `deal_score` ma uwzględniać karę za niekompletność danych i niski confidence segmentu.                                         | Oferta z brakami lub słabą grupą porównawczą nie może dostać maksymalnej oceny.                                                                                                         |
+| REQ-025 | done        | Analytics     | Wynik analityczny ma zawierać osobno `deal_score` i `confidence_score`.                                                        | Implemented as `market_score`/`final_score` and `confidence_score`.                                                                                                                     |
+| REQ-026 | done        | Analytics     | Wynik analityczny ma klasyfikować oferty do poziomów decyzji.                                                                  | Implemented: buckets `ignore`, `watch`, `candidate`, `high-priority`.                                                                                                                   |
+| REQ-027 | done        | Enrichment    | Enrichment ma działać jako osobny etap po wstępnym scoringu.                                                                   | Implemented: osobny `enrichment_worker.py` oraz opcjonalne uruchomienie z `main.py` przez `--run-enrichment`.                                                                           |
+| REQ-028 | done        | Enrichment    | System ma nadawać priorytet ofertom kierowanym do enrichmentu.                                                                 | Implemented: kolejka zapisuje `priority`; selektor uwzględnia świeżość, zmiany ceny i typ sprzedawcy.                                                                                   |
+| REQ-029 | done        | Enrichment    | System ma ograniczać częstotliwość ponownego enrichmentu tej samej oferty.                                                     | Implemented cooldown 7 dni z bypass po zmianie `price_pln` albo promocji `decision_bucket`; `failed` nadal wraca tylko z `--retry-failed`.                                              |
+| REQ-030 | done        | Enrichment    | Wynik enrichmentu ma zapisywać moment pobrania i stan oferty, dla którego pobrano szczegóły.                                   | Implemented pełny kontrakt CSV: `details_status`, `details_priority`, `details_fetched_at`, `details_based_on_*`, `details_fields_present` oraz skrócone pola operacyjne z detail page. |
+| REQ-046 | done        | Enrichment    | System ma przetwarzać szczegóły oferty do ustrukturyzowanych sygnałów jakościowych po pobraniu detail page.                    | Implemented: `enrichment_analysis.py` normalizuje opis, wyposażenie, sprzedawcę i sygnały spójności do formy użytecznej dla dalszej analizy.                                            |
+| REQ-047 | done        | Analytics     | Wynik po enrichmentcie ma zawierać osobny wynik jakościowy oparty o szczegóły oferty.                                          | Implemented: analytics output zwraca `enrichment_score`, `enrichment_confidence`, `enrichment_reasons` i `enrichment_flags`.                                                            |
+| REQ-048 | done        | Pipeline      | System ma mieć drugi etap analizy po enrichmentcie dla ofert, które mają pobrane szczegóły.                                    | Implemented: po `--run-enrichment` `main.py` odświeża pliki analytics, aby uwzględnić świeżo pobrane szczegóły.                                                                         |
+| REQ-049 | done        | Enrichment    | Sygnały z detail page nie mogą samodzielnie promować słabej cenowo oferty do okazji, ale mogą obniżać lub wzmacniać priorytet. | Implemented: enrichment działa jako ograniczony korektor `final_score`; dodatni wpływ jest blokowany dla ofert ze słabym `market_score`.                                                |
+| REQ-031 | planned     | LLM           | Warstwa LLM ma oceniać tylko ograniczoną liczbę kandydatów po wcześniejszej filtracji.                                         | Potrzebny limit kosztu i liczby analiz per przebieg.                                                                                                                                    |
+| REQ-032 | planned     | LLM           | LLM ma zwracać ustrukturyzowany wynik oceny oferty.                                                                            | Co najmniej werdykt, poziom ryzyka, powody i rekomendację dalszego działania.                                                                                                           |
+| REQ-033 | planned     | LLM           | LLM ma być filtrem jakościowym, a nie źródłem podstawowej wyceny okazji.                                                       | Ocena cenowa ma pozostać po stronie analityki deterministycznej.                                                                                                                        |
+| REQ-034 | planned     | Notifications | System ma deduplikować powiadomienia na poziomie oferty i typu zdarzenia.                                                      | Ta sama oferta nie może generować powiadomienia przy każdym przebiegu bez nowego sygnału.                                                                                               |
+| REQ-035 | planned     | Notifications | System ma rozróżniać typy zdarzeń powiadomień.                                                                                 | Np. nowa okazja, spadek ceny, ponowna aktywacja, przejście do wyższego bucketu.                                                                                                         |
+| REQ-036 | planned     | Notifications | Powiadomienie ma zawierać skrót powodów decyzji.                                                                               | Co najmniej cena względem rynku, bucket, confidence i najważniejsze flagi.                                                                                                              |
+| REQ-037 | done        | Preferences   | System ma mieć osobną warstwę preferencji użytkownika niezależną od bazowej analityki rynku.                                   | Implemented: `otomoto-scraper/preferences.py` with global + per-query profiles.                                                                                                         |
+| REQ-038 | done        | Preferences   | System ma rozróżniać twarde filtry preferencji i miękkie preferencje rankingowe.                                               | Implemented: `hard_filters` and `soft_preferences` support.                                                                                                                             |
+| REQ-039 | done        | Preferences   | Preferencje mają dać się konfigurować globalnie i per kwerenda.                                                                | Implemented: merging of global and per-query prefs.                                                                                                                                     |
+| REQ-040 | planned     | Analytics     | Wynik analityczny ma rozdzielać `market_score`, `preference_score` i `final_score`.                                            | `final_score` ma wynikać z rynku i preferencji, ale nie zastępować ich osobnych składowych.                                                                                             |
+| REQ-041 | planned     | Analytics     | System ma zwracać jawny wynik działania preferencji na ofertę.                                                                 | Co najmniej `hard_filter_passed`, `preference_reasons` i zastosowane reguły.                                                                                                            |
+| REQ-042 | planned     | Storage       | System ma mieć zdefiniowany model danych dla wyniku analityki, enrichmentu, LLM i powiadomień.                                 | Potrzebny stabilny kontrakt danych przed implementacją pipeline'u.                                                                                                                      |
+| REQ-043 | done        | Parsing       | System ma wykrywać wzmianki o uszkodzeniu/kolizji na poziomie list-card i zapisać flagę do CSV.                                | Implemented: `detect_damage()` w `otomoto-scraper/utils.py`, pola `is_damaged`/`condition_note` zapisane w CSV.                                                                         |
+| REQ-044 | done        | Tooling       | Repo ma narzędzie do lokalnej analizy CSV (`analyze.py`) do szybkiej weryfikacji scoringu.                                     | Implemented: `analyze.py` zapisuje wyniki do `data/otomoto/analytics/` i drukuje top-oferty.                                                                                            |
+| REQ-045 | done        | Parsing       | System ma wykrywać typ sprzedawcy (`private`/`business`) z list-card, zapisywać go do CSV i uwzględniać w scoringu.            | Implemented: parser list-card wykrywa `Prywatny sprzedawca`/`Firma`, zapisuje `seller_type` i stosuje lekką korektę w `analytics.py`.                                                   |
 
 ## Preference Layer Rules
 
@@ -119,6 +123,10 @@ Aktualizujemy go przy każdym nowym, zmienionym, wykonanym lub usuniętym wymaga
 - `fallback_level`.
 - `market_reasons`.
 - `preference_reasons`.
+- `enrichment_score`.
+- `enrichment_confidence`.
+- `enrichment_reasons`.
+- `enrichment_flags`.
 
 ### 2. Minimalny kontrakt enrichmentu
 
@@ -130,6 +138,31 @@ Aktualizujemy go przy każdym nowym, zmienionym, wykonanym lub usuniętym wymaga
 - `details_based_on_last_seen_date`.
 - `details_based_on_decision_bucket`.
 - `details_fields_present`.
+
+### 2b. Operacyjny skrót enrichmentu w CSV
+
+- `details_description_excerpt`.
+- `details_seller_name`.
+- `details_vin`.
+- `details_country_origin`.
+- `details_no_accident_flag`.
+- `details_service_record_flag`.
+- `details_imported_flag`.
+- `details_enrichment_score`.
+- `details_enrichment_confidence`.
+- `details_enrichment_flags`.
+
+### 2a. Minimalny kontrakt analizy enrichmentu
+
+- `listing_id`.
+- `enrichment_score`.
+- `enrichment_confidence`.
+- `enrichment_reasons`.
+- `enrichment_flags`.
+- `description_signals`.
+- `equipment_signals`.
+- `seller_signals`.
+- `consistency_signals`.
 
 ### 3. Minimalny kontrakt LLM
 
@@ -238,7 +271,10 @@ Aktualizujemy go przy każdym nowym, zmienionym, wykonanym lub usuniętym wymaga
 - 2026-04-11: Added selective enrichment pipeline: queue selection (`enrichment_selector.py`/`enrichment_runner.py`), detail fetch worker (`enrichment_worker.py`), CSV status updates (`details_status`, `details_priority`, `details_fetched_at`) and optional run from `main.py` via `--run-enrichment`.
 - 2026-04-11: Improved `headless` scraping reliability in `scraper.py` by adding stealth browser launch flags, realistic user-agent and navigator masking to avoid CloudFront `403` blocks on Otomoto. Smoke test in `--headless` again returned listing cards and pagination logs.
 - 2026-04-11: Added basic enrichment cooldown in `enrichment_worker.py` (default `7` days, configurable via `--cooldown-days`). Recently fetched offers are skipped until cooldown expires; stale fetched offers can be reprocessed.
+- 2026-04-11: Extended enrichment CSV output with operational detail-page summary fields (`details_description_excerpt`, seller/VIN/origin fields, boolean quality flags and enrichment score/confidence) so the main storage CSV exposes key signals without opening sidecar JSON files.
+- 2026-04-11: Added deterministic enrichment analysis v2 in `enrichment_analysis.py` and integrated it into `analytics.py`. Analytics now expose `enrichment_score`, `enrichment_confidence`, `enrichment_reasons` and `enrichment_flags`, and `main.py` re-runs analytics after `--run-enrichment` so the same run benefits from freshly fetched detail pages.
 - 2026-04-11: Upgraded enrichment payload to extract real detail fields from offer pages (`description`, `seller`, `price`, `equipment`, `parameters`, feature lists, `__NEXT_DATA__` summary) and persist enrichment metadata in CSV (`details_based_on_price_pln`, `details_based_on_last_seen_date`, `details_based_on_decision_bucket`, `details_fields_present`). Cooldown is now bypassed when price changes or analytics promote the offer to a higher `decision_bucket`.
+- 2026-04-11: Extended requirements for enrichment analysis v2. The spec now explicitly covers structured quality/risk signals from detail pages, a separate enrichment output contract, and a second analysis stage that refines shortlisted offers after enrichment.
 
 ### 5. Reguły interpretacji sygnałów
 
@@ -329,6 +365,48 @@ Aktualizujemy go przy każdym nowym, zmienionym, wykonanym lub usuniętym wymaga
 - Warstwa LLM ma korzystać przede wszystkim z ofert po enrichmentcie, a nie z samych listingów.
 - Oferta z wysokim priorytetem, ale bez enrichmentu, może trafić do kolejki pilnej, lecz nie powinna być traktowana jak pełny kandydat jakościowy.
 - Powiadomienia końcowe powinny preferować oferty, które przeszły enrichment lub mają bardzo mocny sygnał z analityki v1.
+
+## Enrichment Analysis Rules
+
+### 1. Cel analizy enrichmentu
+
+- Analiza enrichmentu ma przetwarzać dane z detail page do jawnych sygnałów jakościowych i ryzyk, których nie widać na poziomie list-card.
+- Analiza enrichmentu ma działać po pobraniu szczegółów i nie może być warunkiem działania analityki v1.
+- Wynik enrichmentu ma doprecyzowywać ocenę kandydata, a nie zastępować bazową ocenę rynkową.
+
+### 2. Zakres sygnałów enrichmentu
+
+- System ma wykrywać sygnały pozytywne w opisie, np. `bezwypadkowy`, `serwis ASO`, `pierwszy właściciel`, `garażowany`, `udokumentowana historia`.
+- System ma wykrywać sygnały ryzyka w opisie, np. `uszkodzony`, `do poprawek`, `po kolizji`, `naprawiany`, `brak dokumentów`, `świeżo sprowadzony`.
+- System ma brać pod uwagę dane strukturalne z detail page, np. VIN, parametry pojazdu, kraj pochodzenia, typ napędu, wyposażenie i dane sprzedawcy.
+- System ma wykrywać niespójności między listingiem a detail page, jeśli cena, parametry lub typ sprzedawcy nie zgadzają się między etapami.
+
+### 3. Wymagany wynik analizy enrichmentu
+
+- Wynik ma zawierać `enrichment_score` w skali `0-100`.
+- Wynik ma zawierać `enrichment_confidence` w skali `0-100`.
+- Wynik ma zawierać `enrichment_reasons`, czyli listę najważniejszych sygnałów użytych do oceny.
+- Wynik ma zawierać `enrichment_flags`, czyli krótkie flagi diagnostyczne, np. `vin_present`, `damage_declared`, `aso_service`, `listing_detail_mismatch`.
+
+### 4. Wpływ enrichmentu na dalszą decyzję
+
+- Enrichment może wzmacniać albo osłabiać priorytet oferty już uznanej za ciekawą cenowo.
+- Enrichment może obniżyć ofertę z shortlisty, jeśli wykryje istotne sygnały ryzyka mimo dobrego `market_score`.
+- Enrichment nie może samodzielnie promować oferty z niskim `market_score` do najwyższego priorytetu.
+- Finalny etap rankingu ma jawnie pokazywać, jaki wpływ miały dane listingowe, preferencje i enrichment.
+
+### 5. Reguły ostrożności dla enrichmentu
+
+- Brak części szczegółów na detail page nie może automatycznie oznaczać wysokiego ryzyka; powinien obniżać przede wszystkim `enrichment_confidence`.
+- Pojedyncza pozytywna fraza marketingowa nie może dawać silnej premii bez potwierdzających sygnałów strukturalnych.
+- Pojedyncza czerwona flaga o wysokiej istotności może znacząco obniżyć ocenę jakościową nawet przy dobrym wyposażeniu i opisie.
+- Reguły enrichmentu mają być deterministyczne i testowalne przed ewentualnym przekazaniem oferty do warstwy LLM.
+
+### 6. Zależność od LLM i powiadomień
+
+- Warstwa LLM ma dostawać enrichment jako ustrukturyzowane wejście, a nie tylko surowy HTML albo pełny JSON strony.
+- Powiadomienia końcowe powinny uwzględniać najważniejsze `enrichment_flags` i `enrichment_reasons`, jeśli enrichment był dostępny.
+- Oferta bez enrichmentu może trafić do powiadomień tylko wtedy, gdy sygnał z analityki v1 jest bardzo mocny albo enrichment nie był jeszcze możliwy do wykonania.
 
 ## LLM Review Rules
 

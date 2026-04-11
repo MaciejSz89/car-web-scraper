@@ -12,6 +12,7 @@ from urllib.request import Request, urlopen
 from bs4 import BeautifulSoup
 
 from config import DATA_DIR
+from enrichment_analysis import analyze_detail_payload
 from utils import clean_text, safe_int
 
 
@@ -261,6 +262,79 @@ def _collect_fields_present(payload: dict[str, Any]) -> list[str]:
     return fields
 
 
+def _stringify_bool(value: bool | None) -> str:
+    if value is None:
+        return ""
+    return "1" if value else "0"
+
+
+def _build_description_excerpt(description: str | None, max_length: int = 400) -> str:
+    if not description:
+        return ""
+
+    plain_text = clean_text(BeautifulSoup(description, "html.parser").get_text(" ", strip=True))
+    if not plain_text:
+        return ""
+    if len(plain_text) <= max_length:
+        return plain_text
+    return plain_text[: max_length - 3].rstrip() + "..."
+
+
+def _parameter_value(parameters: dict[str, Any], key: str) -> str:
+    raw_value = clean_text(parameters.get(key))
+    if not raw_value:
+        return ""
+
+    lowered = raw_value.lower()
+    if lowered == key.lower():
+        return ""
+    return raw_value
+
+
+def _parameter_flag(parameters: dict[str, Any], key: str) -> bool | None:
+    raw_value = parameters.get(key)
+    if raw_value in (None, "", [], {}):
+        return None
+
+    normalized = str(raw_value).strip().lower()
+    if normalized in {"0", "false", "no", "nie"}:
+        return False
+    return True
+
+
+def build_csv_detail_summary(payload: dict[str, Any], listing_row: dict[str, str]) -> dict[str, str]:
+    analysis_result = analyze_detail_payload(str(listing_row.get("listing_id") or ""), payload, listing_row=listing_row)
+    parameters = payload.get("parameters") if isinstance(payload.get("parameters"), dict) else {}
+    seller = payload.get("seller") if isinstance(payload.get("seller"), dict) else {}
+
+    no_accident_flag = (
+        "accident_free_declared" in analysis_result.enrichment_flags
+        or _parameter_flag(parameters, "no_accident") is True
+    )
+    service_record_flag = (
+        "aso_service" in analysis_result.enrichment_flags
+        or "documented_history" in analysis_result.enrichment_flags
+        or _parameter_flag(parameters, "service_record") is True
+    )
+    imported_flag = (
+        "import_flag_present" in analysis_result.enrichment_flags
+        or _parameter_flag(parameters, "is_imported_car") is True
+    )
+
+    return {
+        "description_excerpt": _build_description_excerpt(payload.get("description")),
+        "seller_name": clean_text(seller.get("name")) or "",
+        "vin": _parameter_value(parameters, "vin"),
+        "country_origin": _parameter_value(parameters, "country_origin"),
+        "no_accident_flag": _stringify_bool(no_accident_flag),
+        "service_record_flag": _stringify_bool(service_record_flag),
+        "imported_flag": _stringify_bool(imported_flag),
+        "enrichment_score": str(analysis_result.enrichment_score),
+        "enrichment_confidence": str(analysis_result.enrichment_confidence),
+        "enrichment_flags": ",".join(analysis_result.enrichment_flags),
+    }
+
+
 def extract_detail_payload(html: str, url: str) -> dict[str, Any]:
     soup = BeautifulSoup(html, "html.parser")
     page_title = soup.title.get_text(" ", strip=True) if soup.title else None
@@ -418,6 +492,7 @@ def update_listing_enrichment_status(
     based_on_last_seen_date: str | None = None,
     based_on_decision_bucket: str | None = None,
     fields_present: list[str] | None = None,
+    detail_summary: dict[str, str] | None = None,
 ) -> bool:
     if not os.path.exists(csv_file):
         return False
@@ -431,6 +506,16 @@ def update_listing_enrichment_status(
         "details_based_on_last_seen_date",
         "details_based_on_decision_bucket",
         "details_fields_present",
+        "details_description_excerpt",
+        "details_seller_name",
+        "details_vin",
+        "details_country_origin",
+        "details_no_accident_flag",
+        "details_service_record_flag",
+        "details_imported_flag",
+        "details_enrichment_score",
+        "details_enrichment_confidence",
+        "details_enrichment_flags",
     ]
     for field in required_fields:
         if field not in fieldnames:
@@ -452,6 +537,17 @@ def update_listing_enrichment_status(
             row["details_based_on_decision_bucket"] = based_on_decision_bucket
         if fields_present is not None:
             row["details_fields_present"] = ",".join(fields_present)
+        if detail_summary is not None:
+            row["details_description_excerpt"] = detail_summary.get("description_excerpt", "")
+            row["details_seller_name"] = detail_summary.get("seller_name", "")
+            row["details_vin"] = detail_summary.get("vin", "")
+            row["details_country_origin"] = detail_summary.get("country_origin", "")
+            row["details_no_accident_flag"] = detail_summary.get("no_accident_flag", "")
+            row["details_service_record_flag"] = detail_summary.get("service_record_flag", "")
+            row["details_imported_flag"] = detail_summary.get("imported_flag", "")
+            row["details_enrichment_score"] = detail_summary.get("enrichment_score", "")
+            row["details_enrichment_confidence"] = detail_summary.get("enrichment_confidence", "")
+            row["details_enrichment_flags"] = detail_summary.get("enrichment_flags", "")
         updated = True
         break
 
@@ -581,6 +677,7 @@ def process_queue_item(
         html = fetch_html(link)
         payload = extract_detail_payload(html, link)
         output_path = write_detail_json(details_dir, listing_id, payload)
+        detail_summary = build_csv_detail_summary(payload, current_row)
         update_listing_enrichment_status(
             csv_file,
             listing_id,
@@ -591,6 +688,7 @@ def process_queue_item(
             based_on_last_seen_date=current_row.get("last_seen_date") or "",
             based_on_decision_bucket=current_decision_bucket,
             fields_present=payload.get("fields_present") or [],
+            detail_summary=detail_summary,
         )
         return {
             "listing_id": listing_id,

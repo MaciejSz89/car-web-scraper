@@ -22,7 +22,7 @@ def test_main_dry_run_does_not_call_process_query_or_enrichment(monkeypatch):
 
 
 def test_main_runs_enrichment_when_flag_is_set(monkeypatch):
-    called = {"process": 0, "enrichment": None}
+    called = {"process": 0, "enrichment": None, "analytics": []}
 
     monkeypatch.setattr(
         sys,
@@ -31,6 +31,7 @@ def test_main_runs_enrichment_when_flag_is_set(monkeypatch):
     )
     monkeypatch.setattr(main, "QUERIES", [{"name": "q1", "start_url": "u", "csv_file": "x.csv", "max_pages": 1}])
     monkeypatch.setattr(main, "process_query", lambda *args, **kwargs: called.__setitem__("process", called["process"] + 1))
+    monkeypatch.setattr(main, "save_query_analysis", lambda query_name, csv_file: called["analytics"].append((query_name, csv_file)) or ("out.json", []))
 
     def fake_enrichment(**kwargs):
         called["enrichment"] = kwargs
@@ -42,3 +43,4 @@ def test_main_runs_enrichment_when_flag_is_set(monkeypatch):
 
     assert called["process"] == 1
     assert called["enrichment"] == {"retry_failed": True}
+    assert called["analytics"] == [("q1", "x.csv")]

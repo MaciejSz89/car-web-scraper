@@ -65,7 +65,10 @@ def _write_storage_csv(csv_path: Path, listing_id: str = "123") -> None:
         "listing_id","title","price_pln","currency","link","subtitle","engine_cm3","power_hp",
         "mileage_km","fuel_type","gearbox","year","location","seller_type","details_status",
         "details_priority","details_fetched_at","details_based_on_price_pln","details_based_on_last_seen_date",
-        "details_based_on_decision_bucket","details_fields_present","is_damaged","condition_note","first_seen_date",
+        "details_based_on_decision_bucket","details_fields_present","details_description_excerpt","details_seller_name",
+        "details_vin","details_country_origin","details_no_accident_flag","details_service_record_flag",
+        "details_imported_flag","details_enrichment_score","details_enrichment_confidence","details_enrichment_flags",
+        "is_damaged","condition_note","first_seen_date",
         "last_seen_date","days_on_site","is_active","removed_date","initial_price_pln","lowest_price_pln",
         "price_change_count","last_price_change_date",
     ]
@@ -91,6 +94,16 @@ def _write_storage_csv(csv_path: Path, listing_id: str = "123") -> None:
         "details_based_on_last_seen_date": "",
         "details_based_on_decision_bucket": "",
         "details_fields_present": "",
+        "details_description_excerpt": "",
+        "details_seller_name": "",
+        "details_vin": "",
+        "details_country_origin": "",
+        "details_no_accident_flag": "",
+        "details_service_record_flag": "",
+        "details_imported_flag": "",
+        "details_enrichment_score": "",
+        "details_enrichment_confidence": "",
+        "details_enrichment_flags": "",
         "is_damaged": "0",
         "condition_note": "",
         "first_seen_date": "2026-04-01",
@@ -160,6 +173,11 @@ def test_process_queue_item_writes_json_and_updates_csv(tmp_path):
     assert rows[0]["details_based_on_price_pln"] == "10000"
     assert rows[0]["details_based_on_last_seen_date"] == "2026-04-01"
     assert rows[0]["details_fields_present"]
+    assert rows[0]["details_description_excerpt"] == "Bardzo zadbany egzemplarz."
+    assert rows[0]["details_seller_name"] == "Jan Kowalski"
+    assert rows[0]["details_vin"] == "VIN123"
+    assert rows[0]["details_enrichment_score"]
+    assert "seller_private_confirmed" in rows[0]["details_enrichment_flags"]
 
 
 def test_run_processes_queue(tmp_path):

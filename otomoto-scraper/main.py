@@ -21,6 +21,17 @@ from config import (
     SESSION_STATE_FILE,
 )
 
+
+def rerun_analytics_for_all_queries() -> None:
+    for query in QUERIES:
+        query_name = str(query["name"])
+        csv_file = str(query["csv_file"])
+        try:
+            save_query_analysis(query_name, csv_file)
+            logging.info("Odswiezono analityke po enrichment dla kwerendy '%s'.", query_name)
+        except Exception:
+            logging.exception("Ponowna analiza po enrichment nie powiodla sie dla '%s'", query_name)
+
 def process_query(query: dict[str, str | int], headless: bool = HEADLESS) -> None:
     query_name = str(query["name"])
     start_url = str(query["start_url"])
@@ -165,6 +176,7 @@ def main() -> None:
                 "Enrichment worker zakończył się przetworzeniem %d wpisów.",
                 len(enrichment_results),
             )
+            rerun_analytics_for_all_queries()
         except Exception:
             logging.exception("Enrichment worker nie powiódł się")
 

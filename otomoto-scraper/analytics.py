@@ -8,6 +8,7 @@ from statistics import median
 from typing import Any
 
 from config import ANALYTICS_DIR
+from enrichment_analysis import EnrichmentAnalysisResult, analyze_listing_details
 from preferences import evaluate_preferences, load_preferences
 from utils import safe_int
 
@@ -45,6 +46,10 @@ class AnalyticsResult:
     fallback_level: int
     market_reasons: list[str]
     preference_reasons: list[str]
+    enrichment_score: int | None
+    enrichment_confidence: int
+    enrichment_reasons: list[str]
+    enrichment_flags: list[str]
 
 
 def _read_active_cars(csv_file: str) -> list[dict[str, Any]]:
@@ -260,6 +265,25 @@ def _decision_bucket(final_score: int, hard_filter_passed: bool) -> str:
     return "ignore"
 
 
+def _apply_enrichment_adjustment(
+    base_final_score: int,
+    market_score: int,
+    enrichment_result: EnrichmentAnalysisResult | None,
+) -> int:
+    if enrichment_result is None:
+        return base_final_score
+
+    delta_from_neutral = enrichment_result.enrichment_score - 50
+    scaled_adjustment = round(delta_from_neutral * 0.2 * (enrichment_result.enrichment_confidence / 100))
+
+    # Detail-page signals can penalize weak-quality offers strongly enough to demote them,
+    # but they cannot create a top opportunity on their own when market pricing is weak.
+    if market_score < 40 and scaled_adjustment > 0:
+        scaled_adjustment = 0
+
+    return max(0, min(100, base_final_score + scaled_adjustment))
+
+
 def analyze_query_csv(query_name: str, csv_file: str) -> list[AnalyticsResult]:
     cars = _read_active_cars(csv_file)
     preferences = load_preferences()
@@ -269,6 +293,7 @@ def analyze_query_csv(query_name: str, csv_file: str) -> list[AnalyticsResult]:
         comparison_group, fallback_level = _build_comparison_group(car, cars)
         market_score, market_reasons = _calculate_market_score(car, comparison_group, fallback_level)
         confidence_score, confidence_reasons = _calculate_confidence_score(car, len(comparison_group), fallback_level)
+        enrichment_result = analyze_listing_details(str(car["listing_id"]), listing_row=car)
 
         preference_result = evaluate_preferences(car, query_name, preferences)
         hard_filter_passed = bool(preference_result["hard_filter_passed"])
@@ -276,7 +301,8 @@ def analyze_query_csv(query_name: str, csv_file: str) -> list[AnalyticsResult]:
 
         final_score = 0
         if hard_filter_passed:
-            final_score = round(market_score * 0.7 + preference_score * 0.3)
+            base_final_score = round(market_score * 0.7 + preference_score * 0.3)
+            final_score = _apply_enrichment_adjustment(base_final_score, market_score, enrichment_result)
 
         decision_bucket = _decision_bucket(final_score, hard_filter_passed)
 
@@ -297,6 +323,10 @@ def analyze_query_csv(query_name: str, csv_file: str) -> list[AnalyticsResult]:
             fallback_level=fallback_level,
             market_reasons=market_reasons + confidence_reasons,
             preference_reasons=list(preference_result["preference_reasons"]),
+            enrichment_score=enrichment_result.enrichment_score if enrichment_result else None,
+            enrichment_confidence=enrichment_result.enrichment_confidence if enrichment_result else 0,
+            enrichment_reasons=list(enrichment_result.enrichment_reasons) if enrichment_result else [],
+            enrichment_flags=list(enrichment_result.enrichment_flags) if enrichment_result else [],
         ))
 
     return sorted(results, key=lambda result: result.final_score, reverse=True)

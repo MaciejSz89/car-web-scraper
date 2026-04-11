@@ -89,6 +89,36 @@ def read_existing_cars(csv_file: str) -> dict[str, dict]:
             if "details_fields_present" not in row:
                 row["details_fields_present"] = ""
 
+            if "details_description_excerpt" not in row:
+                row["details_description_excerpt"] = ""
+
+            if "details_seller_name" not in row:
+                row["details_seller_name"] = ""
+
+            if "details_vin" not in row:
+                row["details_vin"] = ""
+
+            if "details_country_origin" not in row:
+                row["details_country_origin"] = ""
+
+            if "details_no_accident_flag" not in row:
+                row["details_no_accident_flag"] = ""
+
+            if "details_service_record_flag" not in row:
+                row["details_service_record_flag"] = ""
+
+            if "details_imported_flag" not in row:
+                row["details_imported_flag"] = ""
+
+            if "details_enrichment_score" not in row:
+                row["details_enrichment_score"] = ""
+
+            if "details_enrichment_confidence" not in row:
+                row["details_enrichment_confidence"] = ""
+
+            if "details_enrichment_flags" not in row:
+                row["details_enrichment_flags"] = ""
+
             cars_by_id[listing_id] = row
 
     return cars_by_id
@@ -125,6 +155,16 @@ def upsert_cars_to_csv(cars: list[dict], csv_file: str) -> tuple[int, int]:
         "details_based_on_last_seen_date",
         "details_based_on_decision_bucket",
         "details_fields_present",
+        "details_description_excerpt",
+        "details_seller_name",
+        "details_vin",
+        "details_country_origin",
+        "details_no_accident_flag",
+        "details_service_record_flag",
+        "details_imported_flag",
+        "details_enrichment_score",
+        "details_enrichment_confidence",
+        "details_enrichment_flags",
         "is_damaged",
         "condition_note",
         "first_seen_date",
@@ -182,6 +222,16 @@ def upsert_cars_to_csv(cars: list[dict], csv_file: str) -> tuple[int, int]:
             row["details_based_on_last_seen_date"] = row.get("details_based_on_last_seen_date") or ""
             row["details_based_on_decision_bucket"] = row.get("details_based_on_decision_bucket") or ""
             row["details_fields_present"] = row.get("details_fields_present") or ""
+            row["details_description_excerpt"] = row.get("details_description_excerpt") or ""
+            row["details_seller_name"] = row.get("details_seller_name") or ""
+            row["details_vin"] = row.get("details_vin") or ""
+            row["details_country_origin"] = row.get("details_country_origin") or ""
+            row["details_no_accident_flag"] = row.get("details_no_accident_flag") or ""
+            row["details_service_record_flag"] = row.get("details_service_record_flag") or ""
+            row["details_imported_flag"] = row.get("details_imported_flag") or ""
+            row["details_enrichment_score"] = row.get("details_enrichment_score") or ""
+            row["details_enrichment_confidence"] = row.get("details_enrichment_confidence") or ""
+            row["details_enrichment_flags"] = row.get("details_enrichment_flags") or ""
             # aktualizuj informacje o stanie/uszkodzeniu
             row["is_damaged"] = 1 if car.get("is_damaged") else 0
             row["condition_note"] = car.get("condition_note") or ""
@@ -234,6 +284,16 @@ def upsert_cars_to_csv(cars: list[dict], csv_file: str) -> tuple[int, int]:
             car["details_based_on_last_seen_date"] = car.get("details_based_on_last_seen_date") or ""
             car["details_based_on_decision_bucket"] = car.get("details_based_on_decision_bucket") or ""
             car["details_fields_present"] = car.get("details_fields_present") or ""
+            car["details_description_excerpt"] = car.get("details_description_excerpt") or ""
+            car["details_seller_name"] = car.get("details_seller_name") or ""
+            car["details_vin"] = car.get("details_vin") or ""
+            car["details_country_origin"] = car.get("details_country_origin") or ""
+            car["details_no_accident_flag"] = car.get("details_no_accident_flag") or ""
+            car["details_service_record_flag"] = car.get("details_service_record_flag") or ""
+            car["details_imported_flag"] = car.get("details_imported_flag") or ""
+            car["details_enrichment_score"] = car.get("details_enrichment_score") or ""
+            car["details_enrichment_confidence"] = car.get("details_enrichment_confidence") or ""
+            car["details_enrichment_flags"] = car.get("details_enrichment_flags") or ""
             # uzupełnij pola uszkodzenia dla nowych rekordów
             car["is_damaged"] = 1 if car.get("is_damaged") else 0
             car["condition_note"] = car.get("condition_note") or ""

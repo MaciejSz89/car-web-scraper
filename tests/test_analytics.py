@@ -29,6 +29,23 @@ def test_calculate_market_score_small_group():
     assert any("zbyt mala grupa" in r for r in reasons)
 
 
+def test_apply_enrichment_adjustment_does_not_promote_weak_market_offer():
+    enrichment_result = analytics.EnrichmentAnalysisResult(
+        listing_id="A",
+        enrichment_score=95,
+        enrichment_confidence=100,
+        enrichment_reasons=["positive"],
+        enrichment_flags=["vin_present"],
+        description_signals=["accident_free_declared"],
+        equipment_signals=[],
+        seller_signals=[],
+        consistency_signals=[],
+    )
+
+    adjusted = analytics._apply_enrichment_adjustment(30, 30, enrichment_result)
+    assert adjusted == 30
+
+
 def test_analyze_query_csv_end_to_end(tmp_path, monkeypatch):
     # create minimal CSV with two active cars
     csv_path = tmp_path / "cars.csv"
@@ -52,10 +69,27 @@ def test_analyze_query_csv_end_to_end(tmp_path, monkeypatch):
         writer.writerows(rows)
 
     # monkeypatch load_preferences to return minimal prefs
-    monkeypatch.setattr("preferences.load_preferences", lambda: {"global":{}, "queries":{}, "profile_name":"test"})
+    monkeypatch.setattr(analytics, "load_preferences", lambda: {"global":{}, "queries":{}, "profile_name":"test"})
+    monkeypatch.setattr(
+        analytics,
+        "analyze_listing_details",
+        lambda listing_id, listing_row=None: analytics.EnrichmentAnalysisResult(
+            listing_id=listing_id,
+            enrichment_score=80 if listing_id == "A" else 20,
+            enrichment_confidence=100,
+            enrichment_reasons=["test enrichment"],
+            enrichment_flags=["vin_present"],
+            description_signals=["vin_present"],
+            equipment_signals=[],
+            seller_signals=[],
+            consistency_signals=[],
+        ),
+    )
 
     results = analytics.analyze_query_csv("test", str(csv_path))
     assert isinstance(results, list)
     assert all(hasattr(r, "listing_id") for r in results)
+    assert all(hasattr(r, "enrichment_score") for r in results)
+    assert results[0].enrichment_reasons
     # results sorted by final_score desc
     assert results[0].final_score >= results[-1].final_score
