@@ -271,7 +271,7 @@ def upsert_cars_to_csv(cars: list[dict], csv_file: str) -> tuple[int, int]:
                     "link": item.get("link", ""),
                     "priority": 50,
                     "reason": "new",
-                    "selected_at": datetime.utcnow().replace(tzinfo=timezone.utc).isoformat(),
+                    "selected_at": datetime.now(timezone.utc).isoformat(),
                 })
 
             if to_append:

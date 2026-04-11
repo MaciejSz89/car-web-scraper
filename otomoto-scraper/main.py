@@ -4,6 +4,7 @@ import argparse
 import logging
 
 from analytics import save_query_analysis
+from enrichment_worker import run as run_enrichment_worker
 from scraper import get_html_pages
 from parser import get_cars_from_content
 from storage import upsert_cars_to_csv
@@ -107,6 +108,16 @@ def main() -> None:
         action="store_true",
         help="Wyświetl plan kwerend bez pobierania stron ani zapisu.",
     )
+    parser.add_argument(
+        "--run-enrichment",
+        action="store_true",
+        help="Po zakończeniu scrapingu uruchom enrichment worker dla kolejki ofert.",
+    )
+    parser.add_argument(
+        "--retry-failed-enrichment",
+        action="store_true",
+        help="Przy --run-enrichment ponów także wpisy wcześniej oznaczone jako failed.",
+    )
 
     args = parser.parse_args()
 
@@ -144,6 +155,18 @@ def main() -> None:
         logging.warning("Nieudane kwerendy:")
         for query_name in failed_queries:
             logging.warning("- %s", query_name)
+
+    if args.run_enrichment:
+        try:
+            enrichment_results = run_enrichment_worker(
+                retry_failed=args.retry_failed_enrichment,
+            )
+            logging.info(
+                "Enrichment worker zakończył się przetworzeniem %d wpisów.",
+                len(enrichment_results),
+            )
+        except Exception:
+            logging.exception("Enrichment worker nie powiódł się")
 
 
 if __name__ == "__main__":
