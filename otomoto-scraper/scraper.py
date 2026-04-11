@@ -88,22 +88,84 @@ def build_browser_launch_kwargs(headless: bool) -> dict:
     return launch_kwargs
 
 
+def get_navigation_attempt_settings(
+    attempt: int,
+    navigation_timeout_ms: int,
+) -> tuple[str, int]:
+    if attempt <= 1:
+        return "domcontentloaded", navigation_timeout_ms
+
+    if attempt == 2:
+        return "domcontentloaded", int(navigation_timeout_ms * 1.5)
+
+    return "commit", int(navigation_timeout_ms * 1.5)
+
+
+def get_loaded_article_count(page: Page) -> int:
+    try:
+        return page.locator("article[data-id]").count()
+    except Exception:
+        return 0
+
+
 def navigate_with_retry(
     page: Page,
     url: str,
     wait_ms: int,
     post_navigation_delay_range_ms: tuple[int, int],
     retry_backoff_delay_range_ms: tuple[int, int],
+    navigation_timeout_ms: int,
     max_navigation_retries: int,
 ) -> str:
     for attempt in range(1, max_navigation_retries + 1):
+        wait_until, timeout_ms = get_navigation_attempt_settings(
+            attempt=attempt,
+            navigation_timeout_ms=navigation_timeout_ms,
+        )
+
         try:
-            page.goto(url, wait_until="domcontentloaded")
+            page.goto(url, wait_until=wait_until, timeout=timeout_ms)
+
+            if wait_until == "commit":
+                try:
+                    page.wait_for_load_state(
+                        "domcontentloaded",
+                        timeout=max(5000, navigation_timeout_ms // 3),
+                    )
+                except PlaywrightTimeoutError:
+                    logger.info(
+                        "Nawigacja do %s nie osiagnela domcontentloaded po fallbacku commit; przechodze dalej.",
+                        url,
+                    )
+
             page.wait_for_timeout(wait_ms)
             wait_random_delay(page, post_navigation_delay_range_ms, "Po wejściu na stronę")
             return page.url
         except PlaywrightTimeoutError as exc:
-            logger.warning("Timeout podczas wejścia na %s (próba %d/%d): %s", url, attempt, max_navigation_retries, exc)
+            logger.warning(
+                "Timeout podczas wejścia na %s (próba %d/%d, wait_until=%s, timeout=%d ms): %s",
+                url,
+                attempt,
+                max_navigation_retries,
+                wait_until,
+                timeout_ms,
+                exc,
+            )
+            try:
+                page.evaluate("window.stop()")
+            except Exception:
+                pass
+
+            loaded_article_count = get_loaded_article_count(page)
+            if loaded_article_count > 0:
+                logger.info(
+                    "Mimo timeoutu nawigacja do %s zaladowala %d ofert; uznaje probe za udana.",
+                    url,
+                    loaded_article_count,
+                )
+                page.wait_for_timeout(wait_ms)
+                wait_random_delay(page, post_navigation_delay_range_ms, "Po wejściu na stronę")
+                return page.url
         except Exception as exc:
             logger.warning("Błąd podczas wejścia na %s (próba %d/%d): %s", url, attempt, max_navigation_retries, exc)
 
@@ -232,6 +294,7 @@ def get_html_pages(
     scroll_pause_range_ms: tuple[int, int],
     scroll_step_range_px: tuple[int, int],
     retry_backoff_delay_range_ms: tuple[int, int],
+    navigation_timeout_ms: int,
     max_navigation_retries: int,
     session_state_file: Path,
 ) -> list[str]:
@@ -272,6 +335,7 @@ def get_html_pages(
                         wait_ms=wait_ms,
                         post_navigation_delay_range_ms=post_navigation_delay_range_ms,
                         retry_backoff_delay_range_ms=retry_backoff_delay_range_ms,
+                        navigation_timeout_ms=navigation_timeout_ms,
                         max_navigation_retries=max_navigation_retries,
                     )
                     normalized_current_url = normalize_url_for_visit_check(current_url)
@@ -399,6 +463,7 @@ def get_html(url: str, headless: bool, wait_ms: int) -> str:
         scroll_pause_range_ms=(900, 2200),
         scroll_step_range_px=(1400, 4200),
         retry_backoff_delay_range_ms=(wait_ms, wait_ms),
+        navigation_timeout_ms=30000,
         max_navigation_retries=1,
         session_state_file=Path(".playwright-session-state.json"),
     )

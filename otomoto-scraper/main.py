@@ -12,6 +12,7 @@ from config import (
     QUERIES,
     HEADLESS,
     WAIT_MS,
+    NAVIGATION_TIMEOUT_MS,
     MAX_NAVIGATION_RETRIES,
     POST_NAVIGATION_DELAY_RANGE_MS,
     PAGE_BREAK_DELAY_RANGE_MS,
@@ -50,6 +51,7 @@ def process_query(query: dict[str, str | int], headless: bool = HEADLESS) -> Non
         scroll_pause_range_ms=SCROLL_PAUSE_RANGE_MS,
         scroll_step_range_px=SCROLL_STEP_RANGE_PX,
         retry_backoff_delay_range_ms=RETRY_BACKOFF_DELAY_RANGE_MS,
+        navigation_timeout_ms=NAVIGATION_TIMEOUT_MS,
         max_navigation_retries=MAX_NAVIGATION_RETRIES,
         session_state_file=SESSION_STATE_FILE,
     )
