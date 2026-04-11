@@ -44,3 +44,17 @@ def test_main_runs_enrichment_when_flag_is_set(monkeypatch):
     assert called["process"] == 1
     assert called["enrichment"] == {"retry_failed": True}
     assert called["analytics"] == [("q1", "x.csv")]
+
+
+def test_main_runs_notifications_when_flag_is_set(monkeypatch):
+    called = {"process": 0, "notifications": 0}
+
+    monkeypatch.setattr(sys, "argv", ["main.py", "--run-notifications"])
+    monkeypatch.setattr(main, "QUERIES", [{"name": "q1", "start_url": "u", "csv_file": "x.csv", "max_pages": 1}])
+    monkeypatch.setattr(main, "process_query", lambda *args, **kwargs: called.__setitem__("process", called["process"] + 1))
+    monkeypatch.setattr(main, "run_notifications_pipeline", lambda: called.__setitem__("notifications", called["notifications"] + 1) or [])
+
+    main.main()
+
+    assert called["process"] == 1
+    assert called["notifications"] == 1

@@ -4,6 +4,7 @@ import argparse
 import logging
 
 from analytics import save_query_analysis
+from notifications import run as run_notifications_pipeline
 from enrichment_worker import run as run_enrichment_worker
 from scraper import get_html_pages
 from parser import get_cars_from_content
@@ -131,6 +132,11 @@ def main() -> None:
         action="store_true",
         help="Przy --run-enrichment ponów także wpisy wcześniej oznaczone jako failed.",
     )
+    parser.add_argument(
+        "--run-notifications",
+        action="store_true",
+        help="Po zakończeniu analityki uruchom warstwę powiadomień i zapisz eventy.",
+    )
 
     args = parser.parse_args()
 
@@ -181,6 +187,16 @@ def main() -> None:
             rerun_analytics_for_all_queries()
         except Exception:
             logging.exception("Enrichment worker nie powiódł się")
+
+    if args.run_notifications:
+        try:
+            notification_results = run_notifications_pipeline()
+            logging.info(
+                "Warstwa powiadomien zapisala %d eventow.",
+                len(notification_results),
+            )
+        except Exception:
+            logging.exception("Warstwa powiadomien nie powiodla sie")
 
 
 if __name__ == "__main__":
