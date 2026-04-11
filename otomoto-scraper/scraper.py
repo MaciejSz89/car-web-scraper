@@ -13,6 +13,20 @@ import os
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
 logger = logging.getLogger(__name__)
 
+CHROME_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/135.0.0.0 Safari/537.36"
+)
+
+STEALTH_INIT_SCRIPT = """
+Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
+Object.defineProperty(navigator, 'language', { get: () => 'pl-PL' });
+Object.defineProperty(navigator, 'languages', { get: () => ['pl-PL', 'pl', 'en-US', 'en'] });
+window.chrome = window.chrome || { runtime: {} };
+"""
+
 
 def build_page_url(base_url: str, page_number: int) -> str:
     parsed = urlsplit(base_url)
@@ -46,6 +60,7 @@ def build_browser_context_kwargs(session_state_file: Path) -> dict:
         "viewport": {"width": 1440, "height": 960},
         "locale": "pl-PL",
         "timezone_id": "Europe/Warsaw",
+        "user_agent": CHROME_USER_AGENT,
         "extra_http_headers": {
             "Accept-Language": "pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7",
         },
@@ -55,6 +70,22 @@ def build_browser_context_kwargs(session_state_file: Path) -> dict:
         context_kwargs["storage_state"] = str(session_state_file)
 
     return context_kwargs
+
+
+def build_browser_launch_kwargs(headless: bool) -> dict:
+    launch_kwargs = {
+        "headless": headless,
+    }
+
+    if headless:
+        launch_kwargs["args"] = [
+            "--disable-blink-features=AutomationControlled",
+            "--disable-dev-shm-usage",
+            "--no-sandbox",
+            "--disable-features=IsolateOrigins,site-per-process",
+        ]
+
+    return launch_kwargs
 
 
 def navigate_with_retry(
@@ -210,8 +241,9 @@ def get_html_pages(
     """
 
     def _create_browser_context_page(pw, headless_flag, session_state_path):
-        browser = pw.chromium.launch(headless=headless_flag)
+        browser = pw.chromium.launch(**build_browser_launch_kwargs(headless_flag))
         context = browser.new_context(**build_browser_context_kwargs(session_state_path))
+        context.add_init_script(STEALTH_INIT_SCRIPT)
         page = context.new_page()
         return browser, context, page
 

@@ -235,6 +235,7 @@ Aktualizujemy go przy każdym nowym, zmienionym, wykonanym lub usuniętym wymaga
 - 2026-04-08: Updated `REQUIREMENTS.md` statuses to reflect implemented features (Scraping, Storage, Analytics v1, Preferences, Tooling). Added REQ-043 and REQ-044.
 - 2026-04-08: Added `seller_type` extraction from list-card (`Prywatny sprzedawca`/`Firma`), persisted it to CSV, exposed it in analytics output, and applied a small score adjustment in `analytics.py`.
 - 2026-04-11: Added selective enrichment pipeline: queue selection (`enrichment_selector.py`/`enrichment_runner.py`), detail fetch worker (`enrichment_worker.py`), CSV status updates (`details_status`, `details_priority`, `details_fetched_at`) and optional run from `main.py` via `--run-enrichment`.
+- 2026-04-11: Improved `headless` scraping reliability in `scraper.py` by adding stealth browser launch flags, realistic user-agent and navigator masking to avoid CloudFront `403` blocks on Otomoto. Smoke test in `--headless` again returned listing cards and pagination logs.
 
 ### 5. Reguły interpretacji sygnałów
 
