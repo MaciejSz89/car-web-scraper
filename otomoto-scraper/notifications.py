@@ -282,6 +282,8 @@ def _is_notification_eligible(result: dict[str, Any], row: dict[str, Any], filte
     if min_final_score is None:
         min_final_score = DEFAULT_MIN_FINAL_SCORE
 
+    min_confidence_score = safe_int(filters.get("min_confidence_score"))
+
     allowed_buckets = filters.get("allowed_buckets")
     if isinstance(allowed_buckets, list):
         allowed_bucket_set = {str(value).strip().lower() for value in allowed_buckets if str(value).strip()}
@@ -300,6 +302,7 @@ def _is_notification_eligible(result: dict[str, Any], row: dict[str, Any], filte
         blocked_enrichment_flags = DEFAULT_BLOCKED_ENRICHMENT_FLAGS
 
     final_score = safe_int(result.get("final_score")) or 0
+    confidence_score = safe_int(result.get("confidence_score")) or 0
     decision_bucket = str(result.get("decision_bucket") or "ignore").strip().lower()
     hard_filter_passed = _parse_bool(result.get("hard_filter_passed"))
     is_damaged = _parse_bool(row.get("is_damaged"))
@@ -311,6 +314,8 @@ def _is_notification_eligible(result: dict[str, Any], row: dict[str, Any], filte
     } if isinstance(enrichment_flags_raw, list) else set()
 
     if final_score < min_final_score:
+        return False
+    if min_confidence_score is not None and confidence_score < min_confidence_score:
         return False
     if decision_bucket not in allowed_bucket_set:
         return False

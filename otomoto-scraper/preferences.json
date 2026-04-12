@@ -35,6 +35,7 @@
     },
     "notification_filters": {
       "min_final_score": 75,
+      "min_confidence_score": 80,
       "require_hard_filter_pass": true,
       "allowed_buckets": ["high-priority"],
       "allow_reactivated": false,
@@ -42,7 +43,14 @@
       "bucket_upgrade_target_buckets": ["high-priority"],
       "suppress_bucket_upgrade_after_reactivation_hours": 72,
       "exclude_damaged_listings": true,
-      "blocked_enrichment_flags": ["damage_declared"]
+      "blocked_enrichment_flags": [
+        "airbags_deployed",
+        "severe_front_damage",
+        "severe_rear_damage",
+        "total_loss_declared",
+        "scrap_candidate",
+        "parts_only_vehicle"
+      ]
     },
     "notification_channels": [
       "log",

@@ -391,3 +391,36 @@ def test_notifications_suppress_bucket_upgrade_after_recent_reactivated(tmp_path
     )
 
     assert records == []
+
+
+def test_notifications_skip_low_confidence_listing(tmp_path, monkeypatch):
+    today = date.today().isoformat()
+    csv_path = tmp_path / "cars.csv"
+    analytics_path = tmp_path / "analytics" / "cars-analysis.json"
+    state_path = tmp_path / "notification_state.csv"
+    history_path = tmp_path / "notification_history.csv"
+
+    _write_csv(csv_path, list(_base_csv_row(today).keys()), [_base_csv_row(today)])
+    _write_analysis(analytics_path, [{**_base_analysis_row(), "confidence_score": 55}])
+
+    monkeypatch.setattr(notifications, "ANALYTICS_DIR", tmp_path / "analytics")
+    monkeypatch.setattr(notifications, "load_preferences", lambda: {
+        "profile_name": "test",
+        "global": {
+            "notification_filters": {
+                "min_final_score": 65,
+                "min_confidence_score": 80,
+                "require_hard_filter_pass": True,
+                "allowed_buckets": ["candidate", "high-priority"],
+            }
+        },
+        "queries": {},
+    })
+
+    records = notifications.run(
+        queries=[{"name": "Test Query", "csv_file": str(csv_path)}],
+        state_file=state_path,
+        history_file=history_path,
+    )
+
+    assert records == []

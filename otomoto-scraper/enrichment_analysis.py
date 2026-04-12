@@ -27,6 +27,13 @@ NEGATIVE_DESCRIPTION_RULES = {
     "naprawian": (-12, "wzmianka o naprawach blacharskich", "repaired_bodywork"),
     "brak dokument": (-14, "wzmianka o brakach dokumentow", "missing_documents"),
     "sprowadz": (-4, "wzmianka o imporcie pojazdu", "imported_vehicle"),
+    "brak przod": (-30, "ciezkie uszkodzenie przodu", "severe_front_damage"),
+    "brak tyl": (-28, "ciezkie uszkodzenie tylu", "severe_rear_damage"),
+    "wystrzelon": (-35, "wzmianka o wystrzelonych poduszkach", "airbags_deployed"),
+    "szkoda calkowita": (-40, "wzmianka o szkodzie calkowitej", "total_loss_declared"),
+    "szkoda całkowita": (-40, "wzmianka o szkodzie calkowitej", "total_loss_declared"),
+    "do kasacji": (-35, "wzmianka o pojezdzie do kasacji", "scrap_candidate"),
+    "na czesci": (-30, "wzmianka o pojezdzie na czesci", "parts_only_vehicle"),
 }
 
 EQUIPMENT_RULES = {
