@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_ALLOWED_BUCKETS = {"high-priority"}
 DEFAULT_MIN_FINAL_SCORE = 80
 SIGNIFICANT_PRICE_DROP_RATIO = 0.03
+DEFAULT_BLOCKED_ENRICHMENT_FLAGS = {"damage_declared"}
+DEFAULT_BUCKET_UPGRADE_TARGET_BUCKETS = {"high-priority"}
 NOTIFICATION_CHANNEL_LOG = "log"
 NOTIFICATION_CHANNEL_TELEGRAM = "telegram"
 
@@ -45,6 +47,8 @@ class NotificationState:
     notification_eligible: bool
     first_seen_date: str
     last_seen_date: str
+    last_notification_event: str
+    last_notification_at: str
     updated_at: str
 
 
@@ -84,6 +88,8 @@ def _notification_state_fieldnames() -> list[str]:
         "notification_eligible",
         "first_seen_date",
         "last_seen_date",
+        "last_notification_event",
+        "last_notification_at",
         "updated_at",
     ]
 
@@ -130,6 +136,8 @@ def load_notification_state(state_file: Path = NOTIFICATION_STATE_FILE) -> dict[
                 notification_eligible=_parse_bool(row.get("notification_eligible")),
                 first_seen_date=str(row.get("first_seen_date") or "").strip(),
                 last_seen_date=str(row.get("last_seen_date") or "").strip(),
+                last_notification_event=str(row.get("last_notification_event") or "").strip().lower(),
+                last_notification_at=str(row.get("last_notification_at") or "").strip(),
                 updated_at=str(row.get("updated_at") or "").strip(),
             )
 
@@ -223,7 +231,53 @@ def _get_notification_channels(preferences: dict[str, Any], query_name: str) -> 
     return normalized_channels or [{"type": NOTIFICATION_CHANNEL_LOG}]
 
 
-def _is_notification_eligible(result: dict[str, Any], filters: dict[str, Any]) -> bool:
+def _parse_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _parse_csv_date(value: str | None) -> date | None:
+    if not value:
+        return None
+
+    normalized = value.strip()
+    if not normalized:
+        return None
+
+    for pattern in ("%Y-%m-%d", "%d.%m.%Y"):
+        try:
+            return datetime.strptime(normalized, pattern).date()
+        except ValueError:
+            continue
+
+    return None
+
+
+def _is_notification_eligible(result: dict[str, Any], row: dict[str, Any], filters: dict[str, Any]) -> bool:
     min_final_score = safe_int(filters.get("min_final_score"))
     if min_final_score is None:
         min_final_score = DEFAULT_MIN_FINAL_SCORE
@@ -235,16 +289,36 @@ def _is_notification_eligible(result: dict[str, Any], filters: dict[str, Any]) -
         allowed_bucket_set = DEFAULT_ALLOWED_BUCKETS
 
     require_hard_filter_pass = filters.get("require_hard_filter_pass", True)
+    exclude_damaged_listings = filters.get("exclude_damaged_listings", True)
+
+    blocked_enrichment_flags_cfg = filters.get("blocked_enrichment_flags")
+    if isinstance(blocked_enrichment_flags_cfg, list):
+        blocked_enrichment_flags = {
+            str(flag).strip().lower() for flag in blocked_enrichment_flags_cfg if str(flag).strip()
+        }
+    else:
+        blocked_enrichment_flags = DEFAULT_BLOCKED_ENRICHMENT_FLAGS
 
     final_score = safe_int(result.get("final_score")) or 0
     decision_bucket = str(result.get("decision_bucket") or "ignore").strip().lower()
     hard_filter_passed = _parse_bool(result.get("hard_filter_passed"))
+    is_damaged = _parse_bool(row.get("is_damaged"))
+    enrichment_flags_raw = result.get("enrichment_flags")
+    enrichment_flags = {
+        str(flag).strip().lower()
+        for flag in enrichment_flags_raw
+        if isinstance(flag, str) and str(flag).strip()
+    } if isinstance(enrichment_flags_raw, list) else set()
 
     if final_score < min_final_score:
         return False
     if decision_bucket not in allowed_bucket_set:
         return False
     if require_hard_filter_pass and not hard_filter_passed:
+        return False
+    if exclude_damaged_listings and is_damaged:
+        return False
+    if blocked_enrichment_flags and enrichment_flags.intersection(blocked_enrichment_flags):
         return False
 
     return True
@@ -254,6 +328,7 @@ def _current_state_from_listing(
     query_name: str,
     row: dict[str, Any],
     analysis_result: dict[str, Any] | None,
+    previous_state: NotificationState | None,
     preferences: dict[str, Any],
     now_iso: str,
 ) -> NotificationState:
@@ -266,7 +341,7 @@ def _current_state_from_listing(
     hard_filter_passed = False
 
     if analysis_result is not None and is_active:
-        notification_eligible = _is_notification_eligible(analysis_result, filters)
+        notification_eligible = _is_notification_eligible(analysis_result, row, filters)
         final_score = safe_int(analysis_result.get("final_score")) or 0
         decision_bucket = str(analysis_result.get("decision_bucket") or "ignore").strip().lower()
         hard_filter_passed = _parse_bool(analysis_result.get("hard_filter_passed"))
@@ -282,6 +357,8 @@ def _current_state_from_listing(
         notification_eligible=notification_eligible,
         first_seen_date=str(row.get("first_seen_date") or "").strip(),
         last_seen_date=str(row.get("last_seen_date") or "").strip(),
+        last_notification_event=(previous_state.last_notification_event if previous_state else ""),
+        last_notification_at=(previous_state.last_notification_at if previous_state else ""),
         updated_at=now_iso,
     )
 
@@ -293,24 +370,59 @@ def _bucket_rank(bucket: str) -> int:
 def determine_notification_event(
     current_state: NotificationState,
     previous_state: NotificationState | None,
+    *,
+    filters: dict[str, Any],
     today: date,
+    now_utc: datetime,
 ) -> str | None:
     if not current_state.is_active or not current_state.notification_eligible:
         return None
 
     if previous_state is not None and not previous_state.is_active:
+        allow_reactivated = bool(filters.get("allow_reactivated", True))
+        if not allow_reactivated:
+            return None
+
+        min_reactivated_absence_days = safe_int(filters.get("min_reactivated_absence_days")) or 0
+        if min_reactivated_absence_days > 0:
+            previous_last_seen = _parse_csv_date(previous_state.last_seen_date)
+            if previous_last_seen is not None:
+                inactive_days = (today - previous_last_seen).days
+                if inactive_days < min_reactivated_absence_days:
+                    return None
         return "reactivated"
 
     if current_state.first_seen_date == today.isoformat() and previous_state is None:
         return "new-listing"
 
     if previous_state is not None and _bucket_rank(current_state.decision_bucket) > _bucket_rank(previous_state.decision_bucket):
+        target_buckets_cfg = filters.get("bucket_upgrade_target_buckets")
+        if isinstance(target_buckets_cfg, list):
+            target_buckets = {
+                str(bucket).strip().lower() for bucket in target_buckets_cfg if str(bucket).strip()
+            }
+        else:
+            target_buckets = DEFAULT_BUCKET_UPGRADE_TARGET_BUCKETS
+
+        if target_buckets and current_state.decision_bucket not in target_buckets:
+            return None
+
+        suppress_hours = safe_int(filters.get("suppress_bucket_upgrade_after_reactivation_hours")) or 0
+        if suppress_hours > 0 and previous_state.last_notification_event == "reactivated":
+            last_notification_at = _parse_iso_datetime(previous_state.last_notification_at)
+            if last_notification_at is not None:
+                hours_since_last_notification = (now_utc - last_notification_at).total_seconds() / 3600
+                if hours_since_last_notification < suppress_hours:
+                    return None
         return "bucket-upgrade"
 
     if previous_state is not None and previous_state.price_pln and current_state.price_pln:
         if current_state.price_pln < previous_state.price_pln:
+            min_price_drop_ratio = _parse_float(filters.get("min_price_drop_ratio"))
+            if min_price_drop_ratio is None:
+                min_price_drop_ratio = SIGNIFICANT_PRICE_DROP_RATIO
             drop_ratio = (previous_state.price_pln - current_state.price_pln) / previous_state.price_pln
-            if drop_ratio >= SIGNIFICANT_PRICE_DROP_RATIO:
+            if drop_ratio >= min_price_drop_ratio:
                 return "price-drop"
 
     return None
@@ -478,6 +590,7 @@ def run(
     next_states: dict[str, NotificationState] = dict(previous_states)
     sent_records: list[NotificationRecord] = []
     now_iso = datetime.now(timezone.utc).isoformat()
+    now_utc = datetime.now(timezone.utc)
     today = date.today()
 
     for query in queries:
@@ -486,21 +599,31 @@ def run(
         analysis_results = load_analysis_results(csv_file)
         rows_by_id = read_existing_cars(csv_file)
         channels = _get_notification_channels(preferences, query_name)
+        filters = _get_notification_filters(preferences, query_name)
 
         for listing_id, row in rows_by_id.items():
             analysis_result = analysis_results.get(listing_id)
+            previous_state = previous_states.get(listing_id)
             current_state = _current_state_from_listing(
                 query_name=query_name,
                 row=row,
                 analysis_result=analysis_result,
+                previous_state=previous_state,
                 preferences=preferences,
                 now_iso=now_iso,
             )
-            previous_state = previous_states.get(listing_id)
 
             if analysis_result is not None:
-                event_type = determine_notification_event(current_state, previous_state, today)
+                event_type = determine_notification_event(
+                    current_state,
+                    previous_state,
+                    filters=filters,
+                    today=today,
+                    now_utc=now_utc,
+                )
                 if event_type is not None:
+                    current_state.last_notification_event = event_type
+                    current_state.last_notification_at = now_iso
                     for channel in channels:
                         channel_type = str(channel.get("type") or NOTIFICATION_CHANNEL_LOG).strip().lower()
                         record = _build_notification_record(

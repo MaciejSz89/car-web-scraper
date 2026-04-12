@@ -34,9 +34,15 @@
       }
     },
     "notification_filters": {
-      "min_final_score": 65,
+      "min_final_score": 75,
       "require_hard_filter_pass": true,
-      "allowed_buckets": ["candidate", "high-priority"]
+      "allowed_buckets": ["high-priority"],
+      "allow_reactivated": false,
+      "min_reactivated_absence_days": 3,
+      "bucket_upgrade_target_buckets": ["high-priority"],
+      "suppress_bucket_upgrade_after_reactivation_hours": 72,
+      "exclude_damaged_listings": true,
+      "blocked_enrichment_flags": ["damage_declared"]
     },
     "notification_channels": [
       "log",

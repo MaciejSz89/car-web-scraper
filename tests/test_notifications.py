@@ -299,3 +299,95 @@ def test_notifications_send_to_telegram_channel(tmp_path, monkeypatch):
         "text": notifications._format_notification_message(records[0]),
         "disable_web_page_preview": True,
     }
+
+
+def test_notifications_skip_damaged_listing_by_default(tmp_path, monkeypatch):
+    today = date.today().isoformat()
+    csv_path = tmp_path / "cars.csv"
+    analytics_path = tmp_path / "analytics" / "cars-analysis.json"
+    state_path = tmp_path / "notification_state.csv"
+    history_path = tmp_path / "notification_history.csv"
+
+    row = _base_csv_row(today)
+    row["is_damaged"] = "1"
+    _write_csv(csv_path, list(row.keys()), [row])
+    _write_analysis(analytics_path, [_base_analysis_row()])
+
+    monkeypatch.setattr(notifications, "ANALYTICS_DIR", tmp_path / "analytics")
+    monkeypatch.setattr(notifications, "load_preferences", lambda: {
+        "profile_name": "test",
+        "global": {
+            "notification_filters": {
+                "min_final_score": 65,
+                "require_hard_filter_pass": True,
+                "allowed_buckets": ["candidate", "high-priority"],
+            }
+        },
+        "queries": {},
+    })
+
+    records = notifications.run(
+        queries=[{"name": "Test Query", "csv_file": str(csv_path)}],
+        state_file=state_path,
+        history_file=history_path,
+    )
+
+    assert records == []
+
+
+def test_notifications_suppress_bucket_upgrade_after_recent_reactivated(tmp_path, monkeypatch):
+    today = date.today().isoformat()
+    csv_path = tmp_path / "cars.csv"
+    analytics_path = tmp_path / "analytics" / "cars-analysis.json"
+    state_path = tmp_path / "notification_state.csv"
+    history_path = tmp_path / "notification_history.csv"
+
+    row = _base_csv_row(today)
+    _write_csv(csv_path, list(row.keys()), [row])
+    _write_analysis(analytics_path, [{**_base_analysis_row(), "decision_bucket": "high-priority", "final_score": 88}])
+
+    with open(state_path, "w", newline="", encoding="utf-8") as file_handle:
+        writer = csv.DictWriter(
+            file_handle,
+            fieldnames=notifications._notification_state_fieldnames(),
+            delimiter=";",
+        )
+        writer.writeheader()
+        writer.writerow({
+            "listing_id": "A",
+            "query_name": "Test Query",
+            "price_pln": "50000",
+            "final_score": "70",
+            "decision_bucket": "candidate",
+            "is_active": "1",
+            "hard_filter_passed": "1",
+            "notification_eligible": "1",
+            "first_seen_date": today,
+            "last_seen_date": today,
+            "last_notification_event": "reactivated",
+            "last_notification_at": date.today().isoformat() + "T00:00:00+00:00",
+            "updated_at": date.today().isoformat() + "T00:00:00+00:00",
+        })
+
+    monkeypatch.setattr(notifications, "ANALYTICS_DIR", tmp_path / "analytics")
+    monkeypatch.setattr(notifications, "load_preferences", lambda: {
+        "profile_name": "test",
+        "global": {
+            "notification_filters": {
+                "min_final_score": 65,
+                "require_hard_filter_pass": True,
+                "allowed_buckets": ["candidate", "high-priority"],
+                "bucket_upgrade_target_buckets": ["high-priority"],
+                "suppress_bucket_upgrade_after_reactivation_hours": 72,
+            }
+        },
+        "queries": {},
+    })
+
+    records = notifications.run(
+        queries=[{"name": "Test Query", "csv_file": str(csv_path)}],
+        state_file=state_path,
+        history_file=history_path,
+    )
+
+    assert records == []
