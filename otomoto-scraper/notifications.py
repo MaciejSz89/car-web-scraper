@@ -4,6 +4,7 @@ import csv
 import json
 import logging
 import os
+import re
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -22,8 +23,29 @@ logger = logging.getLogger(__name__)
 DEFAULT_ALLOWED_BUCKETS = {"high-priority"}
 DEFAULT_MIN_FINAL_SCORE = 80
 SIGNIFICANT_PRICE_DROP_RATIO = 0.03
-DEFAULT_BLOCKED_ENRICHMENT_FLAGS = {"damage_declared"}
+DEFAULT_BLOCKED_ENRICHMENT_FLAGS = {
+    "damage_declared",
+    "airbags_deployed",
+    "severe_front_damage",
+    "severe_rear_damage",
+    "total_loss_declared",
+    "scrap_candidate",
+    "parts_only_vehicle",
+}
 DEFAULT_BUCKET_UPGRADE_TARGET_BUCKETS = {"high-priority"}
+SUSPICIOUS_FINANCE_KEYWORDS = (
+    "cesja",
+    "all in",
+    "odstąpię leasing",
+    "odstapie leasing",
+    "mies.",
+    "miesięcz",
+    "miesiecz",
+    "rat ",
+    "raty",
+)
+SUSPICIOUS_UNVERIFIED_PRICE_TO_MEDIAN_RATIO = 0.55
+MIN_ENRICHMENT_CONFIDENCE_FOR_SUSPICIOUS_LISTING = 50
 NOTIFICATION_CHANNEL_LOG = "log"
 NOTIFICATION_CHANNEL_TELEGRAM = "telegram"
 
@@ -277,6 +299,56 @@ def _parse_csv_date(value: str | None) -> date | None:
     return None
 
 
+def _extract_market_median_price(result: dict[str, Any]) -> int | None:
+    market_reasons = result.get("market_reasons")
+    if not isinstance(market_reasons, list):
+        return None
+
+    for reason in market_reasons:
+        if not isinstance(reason, str):
+            continue
+        match = re.search(
+            r"pozycja ceny vs mediana segmentu:\s*(\d[\d\s]*)\s*vs\s*(\d[\d\s]*)",
+            reason,
+            re.IGNORECASE,
+        )
+        if match:
+            return safe_int(match.group(2).replace(" ", ""))
+
+    return None
+
+
+def _looks_like_finance_installment_offer(row: dict[str, Any]) -> bool:
+    haystack = " ".join(
+        str(row.get(field) or "")
+        for field in ("title", "subtitle", "condition_note", "details_description_excerpt")
+    ).lower()
+    if not haystack:
+        return False
+
+    return any(keyword in haystack for keyword in SUSPICIOUS_FINANCE_KEYWORDS)
+
+
+def _is_suspicious_unverified_listing(result: dict[str, Any], row: dict[str, Any]) -> bool:
+    if _looks_like_finance_installment_offer(row):
+        return True
+
+    price_pln = safe_int(row.get("price_pln"))
+    median_price = _extract_market_median_price(result)
+    if price_pln is None or median_price is None or median_price <= 0:
+        return False
+
+    enrichment_confidence = safe_int(result.get("enrichment_confidence"))
+    if enrichment_confidence is None:
+        enrichment_confidence = safe_int(row.get("details_enrichment_confidence")) or 0
+
+    price_ratio = price_pln / median_price
+    return (
+        price_ratio < SUSPICIOUS_UNVERIFIED_PRICE_TO_MEDIAN_RATIO
+        and enrichment_confidence < MIN_ENRICHMENT_CONFIDENCE_FOR_SUSPICIOUS_LISTING
+    )
+
+
 def _is_notification_eligible(result: dict[str, Any], row: dict[str, Any], filters: dict[str, Any]) -> bool:
     min_final_score = safe_int(filters.get("min_final_score"))
     if min_final_score is None:
@@ -294,12 +366,11 @@ def _is_notification_eligible(result: dict[str, Any], row: dict[str, Any], filte
     exclude_damaged_listings = filters.get("exclude_damaged_listings", True)
 
     blocked_enrichment_flags_cfg = filters.get("blocked_enrichment_flags")
+    blocked_enrichment_flags = set(DEFAULT_BLOCKED_ENRICHMENT_FLAGS)
     if isinstance(blocked_enrichment_flags_cfg, list):
-        blocked_enrichment_flags = {
+        blocked_enrichment_flags.update(
             str(flag).strip().lower() for flag in blocked_enrichment_flags_cfg if str(flag).strip()
-        }
-    else:
-        blocked_enrichment_flags = DEFAULT_BLOCKED_ENRICHMENT_FLAGS
+        )
 
     final_score = safe_int(result.get("final_score")) or 0
     confidence_score = safe_int(result.get("confidence_score")) or 0
@@ -324,6 +395,8 @@ def _is_notification_eligible(result: dict[str, Any], row: dict[str, Any], filte
     if exclude_damaged_listings and is_damaged:
         return False
     if blocked_enrichment_flags and enrichment_flags.intersection(blocked_enrichment_flags):
+        return False
+    if _is_suspicious_unverified_listing(result, row):
         return False
 
     return True
