@@ -58,8 +58,16 @@ uv run .\otomoto-scraper\main.py --headless --run-enrichment --run-notifications
 
 ### Ograniczenie liczby enrichowanych ofert w jednym przebiegu
 
+Kolejka jest sortowana malejąco po priorytecie — przy limicie zawsze przetwarzane są najpierw najważniejsze oferty.
+
 ```powershell
 uv run .\otomoto-scraper\main.py --headless --run-enrichment --enrichment-limit 50
+```
+
+### Tylko enrichment i powiadomienia (bez ponownego scrapowania)
+
+```powershell
+uv run .\otomoto-scraper\main.py --dry-run --run-enrichment --run-notifications
 ```
 
 ### Ponowienie nieudanych enrichmentów
