@@ -844,6 +844,10 @@ def run(
         logger.info("Enrichment queue: %d wpisów jest w cooldownie i zostanie usuniętych.", len(cooldown_ids))
         flush_completed_from_queue(resolved_queue_file, cooldown_ids)
 
+    # Sort highest-priority items first so the most valuable listings are always
+    # processed even when a --enrichment-limit is used.
+    queue.sort(key=lambda item: int(item.get("priority") or 0), reverse=True)
+
     if limit is not None:
         queue = queue[:limit]
 
