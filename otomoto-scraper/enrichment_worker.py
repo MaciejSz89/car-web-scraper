@@ -5,6 +5,8 @@ import csv
 import json
 import logging
 import os
+import random
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from urllib.error import URLError
@@ -735,6 +737,9 @@ def process_queue_item(
         }
 
 
+DEFAULT_FETCH_DELAY_RANGE_SECONDS: tuple[float, float] = (1.5, 4.0)
+
+
 def run(
     queue_file: str | None = None,
     *,
@@ -743,6 +748,7 @@ def run(
     limit: int | None = None,
     retry_failed: bool = False,
     cooldown_days: int = DEFAULT_FETCH_COOLDOWN_DAYS,
+    fetch_delay_range_seconds: tuple[float, float] = DEFAULT_FETCH_DELAY_RANGE_SECONDS,
     fetch_html: Callable[[str], str] = fetch_listing_html,
 ) -> list[dict[str, Any]]:
     resolved_data_dir = data_dir or str(DATA_DIR)
@@ -783,17 +789,29 @@ def run(
     if limit is not None:
         queue = queue[:limit]
 
+    total = len(queue)
+    logger.info("Enrichment: %d pozycji do przetworzenia.", total)
+
     results: list[dict[str, Any]] = []
-    for item in queue:
-        results.append(
-            process_queue_item(
-                item,
-                data_dir=resolved_data_dir,
-                details_dir=resolved_details_dir,
-                analytics_cache=analytics_cache,
-                fetch_html=fetch_html,
-            )
+    for index, item in enumerate(queue, start=1):
+        result = process_queue_item(
+            item,
+            data_dir=resolved_data_dir,
+            details_dir=resolved_details_dir,
+            analytics_cache=analytics_cache,
+            fetch_html=fetch_html,
         )
+        results.append(result)
+        logger.info(
+            "Enrichment [%d/%d] listing_id=%s status=%s",
+            index,
+            total,
+            result.get("listing_id") or "",
+            result.get("status") or "",
+        )
+        if result.get("status") in ("fetched", "failed") and index < total:
+            delay = random.uniform(*fetch_delay_range_seconds)
+            time.sleep(delay)
 
     fetched = sum(result.get("status") == "fetched" for result in results)
     failed = sum(result.get("status") == "failed" for result in results)

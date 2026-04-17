@@ -133,6 +133,13 @@ def main() -> None:
         help="Przy --run-enrichment ponów także wpisy wcześniej oznaczone jako failed.",
     )
     parser.add_argument(
+        "--enrichment-limit",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Ogranicz liczbę pozycji przetwarzanych przez enrichment worker w jednym uruchomieniu.",
+    )
+    parser.add_argument(
         "--run-notifications",
         action="store_true",
         help="Po zakończeniu analityki uruchom warstwę powiadomień i zapisz eventy.",
@@ -179,6 +186,7 @@ def main() -> None:
         try:
             enrichment_results = run_enrichment_worker(
                 retry_failed=args.retry_failed_enrichment,
+                limit=args.enrichment_limit,
             )
             logging.info(
                 "Enrichment worker zakończył się przetworzeniem %d wpisów.",
