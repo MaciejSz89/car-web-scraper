@@ -760,7 +760,8 @@ def run(
 
         if csv_file:
             current_row = get_listing_row(csv_file, listing_id)
-            current_status = (current_row or {}).get("details_status", "").strip().lower()
+            current_status_val = (current_row or {}).get("details_status") or ""
+            current_status = str(current_status_val).strip().lower()
             if current_status == "fetched":
                 fetched_at = (current_row or {}).get("details_fetched_at")
                 current_bucket = get_current_decision_bucket(

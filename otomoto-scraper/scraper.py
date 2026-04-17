@@ -192,16 +192,25 @@ def is_disabled_button(button) -> bool:
 
 
 def get_next_page_url_from_pagination_button(page: Page, current_url: str) -> str | None:
-    next_button = page.locator("div.eemmnsu4 ul li button[title='Go to next Page']").first
+    # Use attribute-only selectors — Otomoto uses auto-generated CSS class names
+    # that change between deployments, so we cannot rely on them.
+    button_selectors = [
+        "button[title='Go to next Page']",
+        "button[aria-label='Go to next Page']",
+        # legacy selector kept as last-resort fallback
+        "div.eemmnsu4 ul li button[title='Go to next Page']",
+    ]
 
-    if next_button.count() == 0:
-        return None
+    for sel in button_selectors:
+        candidate = page.locator(sel).first
+        if candidate.count() == 0:
+            continue
+        if is_disabled_button(candidate):
+            return None
+        current_page_number = get_current_page_number(current_url)
+        return build_page_url(current_url, current_page_number + 1)
 
-    if is_disabled_button(next_button):
-        return None
-
-    current_page_number = get_current_page_number(current_url)
-    return build_page_url(current_url, current_page_number + 1)
+    return None
 
 
 def get_next_page_url(page: Page, current_url: str) -> str | None:
