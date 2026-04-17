@@ -161,26 +161,25 @@ def main() -> None:
         logging.info("DRY RUN: nie będą pobierane strony, tylko pokazany plan kwerend")
         for query in QUERIES:
             logging.info("Kwerenda: %s -> %s (max_pages=%s)", query.get("name"), query.get("start_url"), query.get("max_pages"))
-        return
+    else:
+        for query in QUERIES:
+            try:
+                process_query(query, headless=chosen_headless)
+            except Exception as exc:
+                query_name = str(query["name"])
+                failed_queries.append(query_name)
+                logging.exception("Błąd w kwerendzie '%s'", query_name)
 
-    for query in QUERIES:
-        try:
-            process_query(query, headless=chosen_headless)
-        except Exception as exc:
-            query_name = str(query["name"])
-            failed_queries.append(query_name)
-            logging.exception("Błąd w kwerendzie '%s'", query_name)
+        logging.info(
+            "Zakończono przetwarzanie kwerend: %d/%d sukcesów.",
+            len(QUERIES) - len(failed_queries),
+            len(QUERIES),
+        )
 
-    logging.info(
-        "Zakończono przetwarzanie kwerend: %d/%d sukcesów.",
-        len(QUERIES) - len(failed_queries),
-        len(QUERIES),
-    )
-
-    if failed_queries:
-        logging.warning("Nieudane kwerendy:")
-        for query_name in failed_queries:
-            logging.warning("- %s", query_name)
+        if failed_queries:
+            logging.warning("Nieudane kwerendy:")
+            for query_name in failed_queries:
+                logging.warning("- %s", query_name)
 
     if args.run_enrichment:
         try:
