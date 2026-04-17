@@ -64,7 +64,9 @@ Kolejka jest sortowana malejąco po priorytecie — przy limicie zawsze przetwar
 uv run .\otomoto-scraper\main.py --headless --run-enrichment --enrichment-limit 50
 ```
 
-### Tylko enrichment i powiadomienia (bez ponownego scrapowania)
+### Tylko enrichment i powiadomienia (bez ponownego scrapowania stron)
+
+`--dry-run` pomija pętlę po kwerendach (brak Playwright), ale w pełni wykonuje enrichment i powiadomienia.
 
 ```powershell
 uv run .\otomoto-scraper\main.py --dry-run --run-enrichment --run-notifications

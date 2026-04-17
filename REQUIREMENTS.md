@@ -296,7 +296,7 @@ Aktualizujemy go przy każdym nowym, zmienionym, wykonanym lub usuniętym wymaga
 - 2026-04-17: Dodano samoczyszczenie `enrichment_queue.csv` po każdym przebiegu (`flush_completed_from_queue`). Wpisy `fetched`/`skipped` są usuwane z kolejki; `failed` zostają do ponowienia. Dodano throttling (1.5–4 s) między requestami enrichmentu, logi postępu `[X/N]`, parametr `--enrichment-limit N` w `main.py` oraz pole `source_csv` w nowych wpisach kolejki.
 - 2026-04-17: Naprawiono wiszenie enrichment workera przy dużej kolejce — faza filtrowania buduje teraz jednorazowy indeks w pamięci ze wszystkich storage CSV zamiast odczytywać każdy plik dla każdego wpisu kolejki (O(n×m) → O(n+m)). Wpisy w cooldownie są też od razu usuwane z pliku kolejki.
 - 2026-04-17: Kolejka enrichmentu jest teraz sortowana malejąco po `priority` przed przetwarzaniem — przy użyciu `--enrichment-limit N` zawsze procesowane są najpierw najwyżej priorytetowe oferty.
-- 2026-04-17: `--dry-run` w `main.py` pomija scraping stron, ale wykonuje enrichment i powiadomienia gdy podano `--run-enrichment`/`--run-notifications`.
+- 2026-04-17: `--dry-run` w `main.py` pomija scraping stron, ale wykonuje enrichment i powiadomienia gdy podano `--run-enrichment`/`--run-notifications`. Naprawiono błąd gdzie `--dry-run` przerywał działanie przed tymi blokami (`return` zastąpiony blokiem `else`).
 
 ### 5. Reguły interpretacji sygnałów
 
