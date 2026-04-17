@@ -788,6 +788,7 @@ def run(
 
     raw_queue = load_queue(resolved_queue_file)
     queue: list[dict[str, str]] = []
+    cooldown_ids: set[str] = set()   # fetched + in cooldown → safe to remove from queue
     analytics_cache: dict[str, dict[str, dict[str, Any]]] = {}
 
     for item in raw_queue:
@@ -811,11 +812,17 @@ def run(
                     current_row,
                     current_decision_bucket=current_bucket,
                 ):
+                    if listing_id:
+                        cooldown_ids.add(listing_id)
                     continue
             if current_status == "failed" and not retry_failed:
                 continue
 
         queue.append(item)
+
+    if cooldown_ids:
+        logger.info("Enrichment queue: %d wpisów jest w cooldownie i zostanie usuniętych.", len(cooldown_ids))
+        flush_completed_from_queue(resolved_queue_file, cooldown_ids)
 
     if limit is not None:
         queue = queue[:limit]
