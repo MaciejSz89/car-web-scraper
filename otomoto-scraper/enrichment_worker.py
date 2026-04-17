@@ -791,13 +791,33 @@ def run(
     cooldown_ids: set[str] = set()   # fetched + in cooldown → safe to remove from queue
     analytics_cache: dict[str, dict[str, dict[str, Any]]] = {}
 
+    # Build an in-memory index of all storage CSVs once — avoids O(n×m) disk reads
+    # when filtering the queue.  Index: listing_id → (csv_file_path, row_dict)
+    storage_index: dict[str, tuple[str, dict[str, str]]] = {}
+    for file_name in os.listdir(resolved_data_dir):
+        if not file_name.endswith(".csv") or file_name == "enrichment_queue.csv":
+            continue
+        full_path = os.path.join(resolved_data_dir, file_name)
+        try:
+            _, rows = _read_csv_rows(full_path)
+            for row in rows:
+                lid = row.get("listing_id")
+                if lid and lid not in storage_index:
+                    storage_index[lid] = (full_path, row)
+        except Exception:
+            pass
+    logger.info("Enrichment: zaindeksowano %d ofert z plików CSV.", len(storage_index))
+
     for item in raw_queue:
         listing_id = str(item.get("listing_id") or "").strip()
         source_csv = item.get("source_csv") or None
-        csv_file = find_listing_csv(resolved_data_dir, listing_id, source_csv)
+
+        csv_file: str | None = None
+        current_row: dict[str, str] | None = None
+        if listing_id in storage_index:
+            csv_file, current_row = storage_index[listing_id]
 
         if csv_file:
-            current_row = get_listing_row(csv_file, listing_id)
             current_status_val = (current_row or {}).get("details_status") or ""
             current_status = str(current_status_val).strip().lower()
             if current_status == "fetched":
