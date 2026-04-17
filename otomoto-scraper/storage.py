@@ -347,6 +347,7 @@ def upsert_cars_to_csv(cars: list[dict], csv_file: str) -> tuple[int, int]:
                     # jeśli nie uda się odczytać, kontynuujemy i nadpiszemy
                     existing_ids = set()
 
+            source_csv_name = os.path.basename(csv_file)
             to_append = []
             for item in new_items:
                 lid = item.get("listing_id")
@@ -358,13 +359,14 @@ def upsert_cars_to_csv(cars: list[dict], csv_file: str) -> tuple[int, int]:
                     "priority": 50,
                     "reason": "new",
                     "selected_at": datetime.now(timezone.utc).isoformat(),
+                    "source_csv": source_csv_name,
                 })
 
             if to_append:
                 write_header = not os.path.exists(queue_file)
                 os.makedirs(os.path.dirname(queue_file), exist_ok=True)
                 with open(queue_file, "a", newline="", encoding="utf-8-sig") as qf:
-                    fieldnames_q = ["listing_id", "link", "priority", "reason", "selected_at"]
+                    fieldnames_q = ["listing_id", "link", "priority", "reason", "selected_at", "source_csv"]
                     writer = csv.DictWriter(qf, fieldnames=fieldnames_q, delimiter=";", quoting=csv.QUOTE_MINIMAL)
                     if write_header:
                         writer.writeheader()

@@ -83,6 +83,37 @@ def load_queue(queue_file: str) -> list[dict[str, str]]:
         return [dict(row) for row in reader if row.get("listing_id") and row.get("link")]
 
 
+def flush_completed_from_queue(
+    queue_file: str,
+    processed_ids: set[str],
+) -> int:
+    """Remove from queue_file all entries whose listing_id is in processed_ids.
+
+    Returns the number of rows removed.
+    """
+    if not os.path.exists(queue_file) or not processed_ids:
+        return 0
+
+    with open(queue_file, "r", newline="", encoding="utf-8-sig") as fh:
+        reader = csv.DictReader(fh, delimiter=";")
+        fieldnames = reader.fieldnames or []
+        rows = list(reader)
+
+    remaining = [r for r in rows if r.get("listing_id") not in processed_ids]
+    removed = len(rows) - len(remaining)
+
+    if removed == 0:
+        return 0
+
+    with open(queue_file, "w", newline="", encoding="utf-8-sig") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+        writer.writeheader()
+        writer.writerows(remaining)
+
+    logger.info("Enrichment queue: usunięto %d przetworzonych wpisów, pozostało %d.", removed, len(remaining))
+    return removed
+
+
 def fetch_listing_html(url: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> str:
     request = Request(url, headers={"User-Agent": DEFAULT_USER_AGENT})
     with urlopen(request, timeout=timeout_seconds) as response:
@@ -831,6 +862,17 @@ def run(
         f"Enrichment processed {len(results)} items: "
         f"{fetched} fetched, {failed} failed, {skipped} skipped."
     )
+
+    # Usuń z kolejki wpisy które zostały pomyślnie pobrane lub nie mogły być
+    # znalezione (listing_not_found / missing data) — nie ma sensu próbować ich ponownie.
+    ids_to_flush = {
+        r["listing_id"]
+        for r in results
+        if r.get("status") in ("fetched", "skipped")
+        and r.get("listing_id")
+    }
+    flush_completed_from_queue(resolved_queue_file, ids_to_flush)
+
     return results
 
 
