@@ -9,7 +9,7 @@ import random
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from bs4 import BeautifulSoup
@@ -529,6 +529,7 @@ def update_listing_enrichment_status(
     based_on_decision_bucket: str | None = None,
     fields_present: list[str] | None = None,
     detail_summary: dict[str, str] | None = None,
+    active: bool | None = None,
 ) -> bool:
     if not os.path.exists(csv_file):
         return False
@@ -552,6 +553,7 @@ def update_listing_enrichment_status(
         "details_enrichment_score",
         "details_enrichment_confidence",
         "details_enrichment_flags",
+        "is_active",
     ]
     for field in required_fields:
         if field not in fieldnames:
@@ -584,6 +586,8 @@ def update_listing_enrichment_status(
             row["details_enrichment_score"] = detail_summary.get("enrichment_score", "")
             row["details_enrichment_confidence"] = detail_summary.get("enrichment_confidence", "")
             row["details_enrichment_flags"] = detail_summary.get("enrichment_flags", "")
+        if active is not None:
+            row["is_active"] = "1" if active else "0"
         updated = True
         break
 
@@ -748,19 +752,22 @@ def process_queue_item(
             "link": link,
         }
     except (OSError, URLError, ValueError) as exc:
+        is_gone = isinstance(exc, HTTPError) and exc.code == 410
+        new_status = "gone" if is_gone else "failed"
         update_listing_enrichment_status(
             csv_file,
             listing_id,
-            status="failed",
+            status=new_status,
             fetched_at=processed_at,
             priority=priority,
             based_on_price_pln=current_row.get("price_pln") or "",
             based_on_last_seen_date=current_row.get("last_seen_date") or "",
             based_on_decision_bucket=current_decision_bucket,
+            active=False if is_gone else None,
         )
         return {
             "listing_id": listing_id,
-            "status": "failed",
+            "status": new_status,
             "csv_file": csv_file,
             "reason": str(exc),
             "source_csv": source_csv,
@@ -835,6 +842,10 @@ def run(
                     if listing_id:
                         cooldown_ids.add(listing_id)
                     continue
+            if current_status == "gone":
+                if listing_id:
+                    cooldown_ids.add(listing_id)
+                continue
             if current_status == "failed" and not retry_failed:
                 continue
 
@@ -878,6 +889,7 @@ def run(
     fetched = sum(result.get("status") == "fetched" for result in results)
     failed = sum(result.get("status") == "failed" for result in results)
     skipped = sum(result.get("status") == "skipped" for result in results)
+    gone = sum(result.get("status") == "gone" for result in results)
     for result in results:
         if result.get("status") != "failed":
             continue
@@ -891,7 +903,7 @@ def run(
         )
     print(
         f"Enrichment processed {len(results)} items: "
-        f"{fetched} fetched, {failed} failed, {skipped} skipped."
+        f"{fetched} fetched, {failed} failed, {skipped} skipped, {gone} gone."
     )
 
     # Usuń z kolejki wpisy które zostały pomyślnie pobrane lub nie mogły być
@@ -899,7 +911,7 @@ def run(
     ids_to_flush = {
         r["listing_id"]
         for r in results
-        if r.get("status") in ("fetched", "skipped")
+        if r.get("status") in ("fetched", "skipped", "gone")
         and r.get("listing_id")
     }
     flush_completed_from_queue(resolved_queue_file, ids_to_flush)
