@@ -8,6 +8,7 @@ Scraper ogłoszeń samochodowych z Otomoto z warstwą analityczną, enrichmentem
 - Zapis historii ofert do CSV — aktywność, daty, zmiany cen
 - Analityka rynkowa: scoring ofert na tle segmentu porównywalnych pojazdów
 - Selektywny enrichment: pobieranie szczegółów tylko dla wybranych, wysokoscorowanych ofert
+- Warstwa LLM (OpenAI): ocena jakościowa kandydatów z automatycznym komentarzem dołączanym do powiadomień
 - Warstwa preferencji użytkownika (twarde filtry + miękkie korekty rankingu)
 - Powiadomienia o nowych okazjach z deduplikacją (log, Telegram)
 
@@ -23,7 +24,8 @@ otomoto-scraper/
   enrichment_worker.py # worker pobierający szczegóły wybranych ofert
   enrichment_selector.py / enrichment_runner.py  # selekcja kandydatów do enrichmentu
   enrichment_analysis.py  # analiza sygnałów jakościowych z detail page
-  notifications.py     # pipeline powiadomień (eventy, deduplikacja, Telegram)
+  notifications.py     # pipeline powiadomień (eventy, deduplikacja, Telegram, LLM on-demand)
+  llm_worker.py        # ocena ofert przez OpenAI: batch run + on-demand dla powiadomień
   preferences.py       # warstwa preferencji użytkownika
   config.py            # stałe konfiguracyjne i ładowanie queries/preferences
   utils.py             # narzędzia pomocnicze (clean_text, detect_damage, …)

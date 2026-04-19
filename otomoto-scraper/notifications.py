@@ -12,7 +12,8 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from config import ANALYTICS_DIR, NOTIFICATION_HISTORY_FILE, NOTIFICATION_STATE_FILE, QUERIES
+import llm_worker
+from config import ANALYTICS_DIR, DATA_DIR, NOTIFICATION_HISTORY_FILE, NOTIFICATION_STATE_FILE, QUERIES
 from preferences import get_query_preferences, load_preferences
 from storage import read_existing_cars
 from utils import safe_int
@@ -49,6 +50,7 @@ SUSPICIOUS_UNVERIFIED_PRICE_TO_MEDIAN_RATIO = 0.55
 MIN_ENRICHMENT_CONFIDENCE_FOR_SUSPICIOUS_LISTING = 50
 NOTIFICATION_CHANNEL_LOG = "log"
 NOTIFICATION_CHANNEL_TELEGRAM = "telegram"
+DEFAULT_MAX_NOTIFICATION_LLM_CALLS = 5
 
 BUCKET_RANKS = {
     "ignore": 0,
@@ -732,6 +734,13 @@ def run(
     now_utc = datetime.now(timezone.utc)
     today = date.today()
 
+    llm_config = llm_worker.load_llm_config(preferences)
+    notification_llm_limit = (
+        safe_int(str(llm_config.get("max_notification_llm_calls") or DEFAULT_MAX_NOTIFICATION_LLM_CALLS))
+        or DEFAULT_MAX_NOTIFICATION_LLM_CALLS
+    )
+    on_demand_session: llm_worker.OnDemandSession | None = None
+
     for query in queries:
         query_name = str(query["name"])
         csv_file = str(query["csv_file"])
@@ -762,9 +771,46 @@ def run(
                     now_utc=now_utc,
                 )
                 if event_type is not None:
+                    # On-demand LLM: review listings that have no comment yet
+                    if not str(row.get("llm_summary") or "").strip():
+                        details_path = DATA_DIR / "details" / f"{listing_id}.json"
+                        if details_path.exists():
+                            if on_demand_session is None:
+                                try:
+                                    on_demand_session = llm_worker.create_on_demand_session(
+                                        llm_config, limit=notification_llm_limit
+                                    )
+                                except Exception as exc:
+                                    logger.warning("LLM on-demand: nie można zainicjować sesji: %s", exc)
+                                    notification_llm_limit = 0  # disable further attempts
+                            if on_demand_session is not None and not on_demand_session.budget_exhausted:
+                                try:
+                                    with open(details_path, "r", encoding="utf-8") as fh:
+                                        detail_payload = json.load(fh)
+                                except (OSError, json.JSONDecodeError):
+                                    detail_payload = None
+                                if detail_payload is not None:
+                                    result_fields = llm_worker.review_single(
+                                        listing_id, csv_file, row, analysis_result, detail_payload,
+                                        on_demand_session,
+                                    )
+                                    if result_fields is not None:
+                                        row.update(result_fields)
+                                        # Re-check eligibility — reject/high risk blocks notification
+                                        if not _is_notification_eligible(analysis_result, row, filters):
+                                            event_type = None
+                                            current_state.notification_eligible = False
+
+                if event_type is not None:
                     current_state.last_notification_event = event_type
                     current_state.last_notification_at = now_iso
                     if event_type == "llm-approved":
+                        current_state.llm_notified_verdict = "approve"
+                    elif (
+                        str(row.get("llm_verdict") or "").strip().lower() == "approve"
+                        and str(row.get("llm_risk_level") or "").strip().lower() in {"low", "medium"}
+                    ):
+                        # On-demand approve — mark to prevent duplicate llm-approved on next run
                         current_state.llm_notified_verdict = "approve"
                     for channel in channels:
                         channel_type = str(channel.get("type") or NOTIFICATION_CHANNEL_LOG).strip().lower()

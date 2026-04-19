@@ -5,6 +5,7 @@ import csv
 import json
 import logging
 import os
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -592,6 +593,121 @@ def run(
     print(f"LLM review processed {len(results)} items: {reviewed} reviewed, {failed} failed, {aborted} aborted.")
 
     return results
+
+
+# ── On-demand single review ───────────────────────────────────────────────────
+
+
+@dataclass(slots=True)
+class OnDemandSession:
+    """Shared LLM client + counter for on-demand reviews within one pipeline run."""
+
+    client: OpenAI
+    model: str
+    max_tokens: int
+    temperature: float
+    limit: int
+    calls_made: int = 0
+
+    @property
+    def budget_exhausted(self) -> bool:
+        return self.calls_made >= self.limit
+
+
+def create_on_demand_session(llm_config: dict[str, Any], *, limit: int) -> OnDemandSession:
+    """Build an ``OnDemandSession`` from a loaded llm_config dict."""
+    client = resolve_openai_client(llm_config)
+    model = str(llm_config.get("model") or DEFAULT_LLM_MODEL)
+    max_tokens = safe_int(str(llm_config.get("max_tokens") or DEFAULT_MAX_TOKENS)) or DEFAULT_MAX_TOKENS
+    temperature = float(llm_config.get("temperature") or DEFAULT_TEMPERATURE)
+    return OnDemandSession(
+        client=client,
+        model=model,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        limit=limit,
+    )
+
+
+def review_single(
+    listing_id: str,
+    csv_file: str,
+    listing_row: dict[str, Any],
+    analytics: dict[str, Any],
+    detail_payload: dict[str, Any],
+    session: OnDemandSession,
+) -> dict[str, Any] | None:
+    """Review a single listing on-demand and persist the result to *csv_file*.
+
+    Returns a dict with LLM result fields on success, or ``None`` when skipped
+    (budget exhausted, rate-limited, or any error).
+
+    Mutates ``session.calls_made`` on success.
+    """
+    if session.budget_exhausted:
+        logger.debug(
+            "LLM on-demand: limit %d osiągnięty, pomijam listing_id=%s",
+            session.limit,
+            listing_id,
+        )
+        return None
+
+    reviewed_at = datetime.now(timezone.utc).isoformat()
+    try:
+        prompt = build_prompt(listing_row, detail_payload, analytics)
+        raw_response = call_llm(
+            prompt,
+            client=session.client,
+            model=session.model,
+            max_tokens=session.max_tokens,
+            temperature=session.temperature,
+        )
+        verdict, risk_level, confidence, summary, reasons = _parse_llm_response(raw_response)
+    except RateLimitError as exc:
+        logger.warning(
+            "LLM on-demand: rate limit — wyłączam dalsze próby: %s", exc
+        )
+        session.limit = 0  # exhaust budget to skip remaining candidates
+        return None
+    except json.JSONDecodeError as exc:
+        logger.warning(
+            "LLM on-demand: niepoprawny JSON dla listing_id=%s: %s", listing_id, exc
+        )
+        return None
+    except Exception as exc:
+        logger.warning(
+            "LLM on-demand: błąd dla listing_id=%s: %s", listing_id, exc
+        )
+        return None
+
+    update_listing_llm_result(
+        csv_file,
+        listing_id,
+        verdict=verdict,
+        risk_level=risk_level,
+        confidence=confidence,
+        summary=summary,
+        reasons=reasons,
+        reviewed_at=reviewed_at,
+    )
+    session.calls_made += 1
+    logger.info(
+        "LLM on-demand: listing_id=%s verdict=%s risk=%s confidence=%d (%d/%d)",
+        listing_id,
+        verdict,
+        risk_level,
+        confidence,
+        session.calls_made,
+        session.limit,
+    )
+    return {
+        "llm_verdict": verdict,
+        "llm_risk_level": risk_level,
+        "llm_confidence": str(confidence),
+        "llm_summary": summary,
+        "llm_reasons": "|".join(reasons),
+        "llm_reviewed_at": reviewed_at,
+    }
 
 
 def main() -> None:

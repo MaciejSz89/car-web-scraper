@@ -1,5 +1,8 @@
 {
   "profile_name": "default",
+  "llm": {
+    "max_notification_llm_calls": 5
+  },
   "global": {
     "hard_filters": {
       "max_price_pln": 55000,
