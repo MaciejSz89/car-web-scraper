@@ -231,7 +231,11 @@ def _calculate_confidence_score(target: dict[str, Any], group_size: int, fallbac
         reasons.append(f"mala grupa porownawcza: -{penalty}")
 
     if fallback_level:
-        penalty = fallback_level * 12
+        base_penalty = fallback_level * 12
+        # Duza grupa porownawcza niweluje nieufnosc do fallbacku:
+        # przy group_size >= MIN + 30 kara spada do 20% wartosci bazowej.
+        size_factor = max(0.2, 1.0 - (group_size - MIN_COMPARISON_GROUP_SIZE) / 30)
+        penalty = round(base_penalty * size_factor)
         score -= penalty
         reasons.append(f"nizsze zaufanie przez fallback: -{penalty}")
 
