@@ -24,7 +24,6 @@ DEFAULT_ALLOWED_BUCKETS = {"high-priority"}
 DEFAULT_MIN_FINAL_SCORE = 80
 SIGNIFICANT_PRICE_DROP_RATIO = 0.03
 DEFAULT_BLOCKED_ENRICHMENT_FLAGS = {
-    "damage_declared",
     "airbags_deployed",
     "severe_front_damage",
     "severe_rear_damage",
@@ -32,6 +31,8 @@ DEFAULT_BLOCKED_ENRICHMENT_FLAGS = {
     "scrap_candidate",
     "parts_only_vehicle",
 }
+SEVERE_DAMAGE_FLAGS = frozenset(DEFAULT_BLOCKED_ENRICHMENT_FLAGS)
+MINOR_DAMAGE_FLAGS = frozenset({"damage_declared", "damage_structural"})
 DEFAULT_BUCKET_UPGRADE_TARGET_BUCKETS = {"high-priority"}
 SUSPICIOUS_FINANCE_KEYWORDS = (
     "cesja",
@@ -369,6 +370,7 @@ def _is_notification_eligible(result: dict[str, Any], row: dict[str, Any], filte
 
     require_hard_filter_pass = filters.get("require_hard_filter_pass", True)
     exclude_damaged_listings = filters.get("exclude_damaged_listings", True)
+    damaged_handling = str(filters.get("damaged_handling", "block")).strip().lower()
 
     blocked_enrichment_flags_cfg = filters.get("blocked_enrichment_flags")
     blocked_enrichment_flags = set(DEFAULT_BLOCKED_ENRICHMENT_FLAGS)
@@ -397,10 +399,32 @@ def _is_notification_eligible(result: dict[str, Any], row: dict[str, Any], filte
         return False
     if require_hard_filter_pass and not hard_filter_passed:
         return False
-    if exclude_damaged_listings and is_damaged:
+
+    # ── Damage handling ───────────────────────────────────────────────────────
+    # Severe damage always hard-blocks regardless of damaged_handling setting.
+    if enrichment_flags.intersection(SEVERE_DAMAGE_FLAGS):
         return False
-    if blocked_enrichment_flags and enrichment_flags.intersection(blocked_enrichment_flags):
-        return False
+
+    if damaged_handling == "llm":
+        # Minor damage: defer to LLM — require explicit approve with non-high risk.
+        minor_damage_present = is_damaged or bool(enrichment_flags.intersection(MINOR_DAMAGE_FLAGS))
+        if minor_damage_present:
+            llm_verdict_val = str(row.get("llm_verdict") or "").strip().lower()
+            llm_risk_val = str(row.get("llm_risk_level") or "").strip().lower()
+            if llm_verdict_val != "approve" or llm_risk_val == "high":
+                return False
+        # Apply remaining blocked flags (severe already checked above; skip minor damage flags).
+        effective_blocked = blocked_enrichment_flags - SEVERE_DAMAGE_FLAGS - MINOR_DAMAGE_FLAGS
+        if effective_blocked and enrichment_flags.intersection(effective_blocked):
+            return False
+    else:
+        # "block" (default): any damage signal → hard block.
+        if exclude_damaged_listings and is_damaged:
+            return False
+        if blocked_enrichment_flags and enrichment_flags.intersection(blocked_enrichment_flags):
+            return False
+    # ─────────────────────────────────────────────────────────────────────────
+
     if _is_suspicious_unverified_listing(result, row):
         return False
 

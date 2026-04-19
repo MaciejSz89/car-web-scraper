@@ -289,6 +289,11 @@ def build_prompt(
     equipment_text = ", ".join(equipment[:30]) if equipment else "brak danych"
 
     enrichment_flags = str(listing_row.get("details_enrichment_flags") or "brak")
+    is_damaged_raw = str(listing_row.get("is_damaged") or "0").strip()
+    details_damaged_flag = str(listing_row.get("details_damaged_flag") or "").strip()
+    damage_status = "brak sygnałów uszkodzenia"
+    if is_damaged_raw in ("1", "true") or details_damaged_flag.lower() in ("true", "1", "yes"):
+        damage_status = "UWAGA: oferta oznaczona jako uszkodzona (oceń czy uszkodzenie jest drobne/naprawialne czy dyskwalifikujące)"
 
     market_reasons_raw = analytics.get("market_reasons") or []
     if isinstance(market_reasons_raw, list):
@@ -324,6 +329,9 @@ def build_prompt(
         "",
         "## Flagi automatyczne (wykryte regułami)",
         enrichment_flags,
+        "",
+        f"## Stan uszkodzenia",
+        damage_status,
         "",
         "## Opis ogłoszenia",
         description or "brak opisu",

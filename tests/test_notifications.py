@@ -385,7 +385,8 @@ def test_notifications_merge_default_damage_flags_with_custom_config(tmp_path, m
     history_path = tmp_path / "notification_history.csv"
 
     _write_csv(csv_path, list(_base_csv_row(today).keys()), [_base_csv_row(today)])
-    _write_analysis(analytics_path, [{**_base_analysis_row(), "enrichment_flags": ["damage_declared"]}])
+    # total_loss_declared is in DEFAULT_BLOCKED_ENRICHMENT_FLAGS but not in user config list
+    _write_analysis(analytics_path, [{**_base_analysis_row(), "enrichment_flags": ["total_loss_declared"]}])
 
     monkeypatch.setattr(notifications, "ANALYTICS_DIR", tmp_path / "analytics")
     monkeypatch.setattr(notifications, "load_preferences", lambda: {
@@ -653,3 +654,81 @@ def test_notifications_llm_approved_not_fired_for_high_risk(tmp_path, monkeypatc
     )
 
     assert records == []
+
+
+def test_notifications_damaged_llm_mode_blocks_without_llm_verdict(tmp_path, monkeypatch):
+    """damaged_handling='llm': damaged listing without LLM verdict must NOT generate a notification."""
+    today = date.today().isoformat()
+    csv_path = tmp_path / "cars.csv"
+    analytics_path = tmp_path / "analytics" / "cars-analysis.json"
+    state_path = tmp_path / "notification_state.csv"
+    history_path = tmp_path / "notification_history.csv"
+
+    row = _base_csv_row(today)
+    row["is_damaged"] = "1"
+    _write_csv(csv_path, list(row.keys()), [row])
+    _write_analysis(analytics_path, [_base_analysis_row()])
+
+    monkeypatch.setattr(notifications, "ANALYTICS_DIR", tmp_path / "analytics")
+    monkeypatch.setattr(notifications, "load_preferences", lambda: {
+        "profile_name": "test",
+        "global": {
+            "notification_filters": {
+                "min_final_score": 65,
+                "require_hard_filter_pass": True,
+                "allowed_buckets": ["candidate", "high-priority"],
+                "damaged_handling": "llm",
+            }
+        },
+        "queries": {},
+    })
+
+    records = notifications.run(
+        queries=[{"name": "Test Query", "csv_file": str(csv_path)}],
+        state_file=state_path,
+        history_file=history_path,
+    )
+
+    assert records == []
+
+
+def test_notifications_damaged_llm_mode_allows_with_llm_approve(tmp_path, monkeypatch):
+    """damaged_handling='llm': damaged listing with llm_verdict=approve + low risk generates notification."""
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    today = date.today().isoformat()
+    csv_path = tmp_path / "cars.csv"
+    analytics_path = tmp_path / "analytics" / "cars-analysis.json"
+    state_path = tmp_path / "notification_state.csv"
+    history_path = tmp_path / "notification_history.csv"
+
+    row = _base_csv_row(yesterday)
+    row["last_seen_date"] = today
+    row["is_damaged"] = "1"
+    row["llm_verdict"] = "approve"
+    row["llm_risk_level"] = "low"
+    row["llm_summary"] = "Drobne uszkodzenie zderzaka, cena to uwzglednia"
+    _write_csv(csv_path, list(row.keys()), [row])
+    _write_analysis(analytics_path, [_base_analysis_row()])
+
+    monkeypatch.setattr(notifications, "ANALYTICS_DIR", tmp_path / "analytics")
+    monkeypatch.setattr(notifications, "load_preferences", lambda: {
+        "profile_name": "test",
+        "global": {
+            "notification_filters": {
+                "min_final_score": 65,
+                "require_hard_filter_pass": True,
+                "allowed_buckets": ["candidate", "high-priority"],
+                "damaged_handling": "llm",
+            }
+        },
+        "queries": {},
+    })
+
+    records = notifications.run(
+        queries=[{"name": "Test Query", "csv_file": str(csv_path)}],
+        state_file=state_path,
+        history_file=history_path,
+    )
+
+    assert len(records) == 1
+    assert records[0].event_type == "llm-approved"
