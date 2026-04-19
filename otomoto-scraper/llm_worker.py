@@ -295,6 +295,17 @@ def build_prompt(
     if is_damaged_raw in ("1", "true") or details_damaged_flag.lower() in ("true", "1", "yes"):
         damage_status = "UWAGA: oferta oznaczona jako uszkodzona (oceń czy uszkodzenie jest drobne/naprawialne czy dyskwalifikujące)"
 
+    imported_flag_raw = str(listing_row.get("details_imported_flag") or "0").strip()
+    country_origin_val = str(listing_row.get("details_country_origin") or "").strip()
+    if imported_flag_raw in ("1", "true") or country_origin_val:
+        import_parts = ["pojazd importowany"]
+        if country_origin_val:
+            import_parts.append(f"kraj: {country_origin_val}")
+        import_status = "UWAGA: " + "; ".join(import_parts)
+        import_status += " — zweryfikuj homologację na rynek UE, historię pojazdu, rzeczywisty przebieg (przeliczenie mil→km) i potencjalne koszty celne/napraw"
+    else:
+        import_status = "brak flag importu"
+
     market_reasons_raw = analytics.get("market_reasons") or []
     if isinstance(market_reasons_raw, list):
         market_reasons = "; ".join(str(r) for r in market_reasons_raw[:8])
@@ -332,6 +343,9 @@ def build_prompt(
         "",
         f"## Stan uszkodzenia",
         damage_status,
+        "",
+        "## Import i kraj pochodzenia",
+        import_status,
         "",
         "## Opis ogłoszenia",
         description or "brak opisu",

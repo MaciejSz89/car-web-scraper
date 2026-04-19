@@ -52,3 +52,31 @@ def test_load_and_analyze_listing_details_from_sidecar(tmp_path):
     assert result.listing_id == "ABC"
     assert result.enrichment_score >= 50
     assert "seller_business_confirmed" in result.enrichment_flags
+
+
+def test_import_flag_detected_for_otomoto_checkbox_pattern():
+    """is_imported_car with value equal to its key (otomoto checkbox) must trigger import_flag_present."""
+    payload = {
+        "description": "Samochód w dobrym stanie.",
+        "parameters": {"is_imported_car": "is_imported_car", "vin": "VIN999"},
+        "price": {"amount": 30000},
+        "seller": {"type": "private"},
+    }
+    listing_row = {"price_pln": "30000", "seller_type": "private"}
+    result = enrichment_analysis.analyze_detail_payload("X1", payload, listing_row=listing_row)
+    assert "import_flag_present" in result.enrichment_flags
+
+
+def test_overseas_import_flag_for_usa():
+    """country_origin containing known overseas keyword must trigger overseas_import flag and penalty."""
+    payload = {
+        "description": "Samochód sprowadzony.",
+        "parameters": {"country_origin": "Stany Zjednoczone"},
+        "price": {"amount": 40000},
+        "seller": {"type": "private"},
+    }
+    listing_row = {"price_pln": "40000", "seller_type": "private"}
+    result = enrichment_analysis.analyze_detail_payload("X2", payload, listing_row=listing_row)
+    assert "overseas_import" in result.enrichment_flags
+    # score should be below neutral 50 due to overseas penalty
+    assert result.enrichment_score < 50

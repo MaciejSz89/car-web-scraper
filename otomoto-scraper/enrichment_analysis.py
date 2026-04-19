@@ -197,11 +197,14 @@ def _score_consistency(payload: dict[str, Any], listing_row: dict[str, Any] | No
         _append_unique(reasons, "obecnosc numeru VIN")
         _append_unique(flags, "vin_present")
 
-    imported = str(parameters.get("is_imported_car") or "").strip().lower() if isinstance(parameters, dict) else ""
-    if imported in {"true", "1", "yes", "tak"}:
-        score -= 2
-        _append_unique(reasons, "detail page wskazuje na import pojazdu")
-        _append_unique(flags, "import_flag_present")
+    if isinstance(parameters, dict):
+        imported_raw = parameters.get("is_imported_car")
+        if imported_raw not in (None, "", [], {}):
+            normalized_imp = str(imported_raw).strip().lower()
+            if normalized_imp not in {"0", "false", "no", "nie"}:
+                score -= 2
+                _append_unique(reasons, "detail page wskazuje na import pojazdu")
+                _append_unique(flags, "import_flag_present")
 
     return score, reasons, flags
 
@@ -229,6 +232,16 @@ def _score_parameters(parameters: Any) -> tuple[int, list[str], list[str]]:
             score += 8
             _append_unique(reasons, "strukturalna flaga bezwypadkowosci z detail page")
             _append_unique(flags, "accident_free_structural")
+
+    OVERSEAS_COUNTRIES = {
+        "usa", "stany zjednoczone", "japonia", "kanada", "australia",
+        "korea poludniowa", "korea południowa", "chiny",
+    }
+    country_origin_raw = str(parameters.get("country_origin") or "").strip()
+    if any(kw in country_origin_raw.lower() for kw in OVERSEAS_COUNTRIES):
+        score -= 8
+        _append_unique(reasons, f"pojazd z rynku zamorskiego ({country_origin_raw})")
+        _append_unique(flags, "overseas_import")
 
     return score, reasons, flags
 
