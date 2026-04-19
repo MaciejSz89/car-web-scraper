@@ -133,7 +133,7 @@ def calculate_days_on_site(first_seen_date_str: str, last_seen_date_str: str) ->
 def upsert_cars_to_csv(cars: list[dict], csv_file: str) -> tuple[int, int]:
     today = date.today().isoformat()
 
-    fieldnames = [
+    _baseline_fieldnames = [
         "listing_id",
         "title",
         "price_pln",
@@ -160,6 +160,7 @@ def upsert_cars_to_csv(cars: list[dict], csv_file: str) -> tuple[int, int]:
         "details_vin",
         "details_country_origin",
         "details_no_accident_flag",
+        "details_damaged_flag",
         "details_service_record_flag",
         "details_imported_flag",
         "details_enrichment_score",
@@ -177,6 +178,24 @@ def upsert_cars_to_csv(cars: list[dict], csv_file: str) -> tuple[int, int]:
         "price_change_count",
         "last_price_change_date",
     ]
+
+    # Merge baseline with any extra columns already present in the existing CSV
+    # (e.g. fields added by enrichment_worker or llm_worker after initial creation).
+    existing_csv_fieldnames: list[str] = []
+    if os.path.exists(csv_file):
+        try:
+            with open(csv_file, "r", newline="", encoding="utf-8-sig") as _fh:
+                _reader = csv.DictReader(_fh, delimiter=";")
+                existing_csv_fieldnames = list(_reader.fieldnames or [])
+        except Exception:
+            pass
+
+    baseline_set = set(_baseline_fieldnames)
+    fieldnames = list(_baseline_fieldnames)
+    for col in existing_csv_fieldnames:
+        if col not in baseline_set:
+            fieldnames.append(col)
+            baseline_set.add(col)
 
     existing = read_existing_cars(csv_file)
 
@@ -319,6 +338,7 @@ def upsert_cars_to_csv(cars: list[dict], csv_file: str) -> tuple[int, int]:
             fieldnames=fieldnames,
             delimiter=";",
             quoting=csv.QUOTE_MINIMAL,
+            extrasaction="ignore",
         )
         writer.writeheader()
         writer.writerows(rows)
