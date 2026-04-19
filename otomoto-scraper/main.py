@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import time
 
 from analytics import save_query_analysis
 from notifications import run as run_notifications_pipeline, retry_failed_notifications
@@ -101,83 +102,7 @@ def process_query(query: dict[str, str | int], headless: bool = HEADLESS) -> Non
         print(f"Analiza kwerendy '{query_name}' nie powiodła się: {exc}")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Otomoto scraper")
-    parser.add_argument(
-        "--headless",
-        dest="headless",
-        action="store_true",
-        help="Uruchom przeglądarkę w trybie headless (nadpisuje config).",
-    )
-    parser.add_argument(
-        "--no-headless",
-        dest="headless",
-        action="store_false",
-        help="Uruchom przeglądarkę w trybie okienkowym (nadpisuje config).",
-    )
-    parser.add_argument(
-        "--verbose", action="store_true", help="Włącz verbose logging (DEBUG)."
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Wyświetl plan kwerend bez pobierania stron ani zapisu.",
-    )
-    parser.add_argument(
-        "--run-enrichment",
-        action="store_true",
-        help="Po zakończeniu scrapingu uruchom enrichment worker dla kolejki ofert.",
-    )
-    parser.add_argument(
-        "--retry-failed-enrichment",
-        action="store_true",
-        help="Przy --run-enrichment ponów także wpisy wcześniej oznaczone jako failed.",
-    )
-    parser.add_argument(
-        "--enrichment-limit",
-        type=int,
-        default=None,
-        metavar="N",
-        help="Ogranicz liczbę pozycji przetwarzanych przez enrichment worker w jednym uruchomieniu.",
-    )
-    parser.add_argument(
-        "--run-llm",
-        action="store_true",
-        help="Po enrichmencie uruchom warstwę LLM review dla wybranych kandydatów.",
-    )
-    parser.add_argument(
-        "--llm-limit",
-        type=int,
-        default=None,
-        metavar="N",
-        help="Ogranicz liczbę ofert wysyłanych do LLM w jednym uruchomieniu.",
-    )
-    parser.add_argument(
-        "--llm-model",
-        default=None,
-        help="Model OpenAI (nadpisuje wartość z preferences).",
-    )
-    parser.add_argument(
-        "--run-notifications",
-        action="store_true",
-        help="Po zakończeniu analityki uruchom warstwę powiadomień i zapisz eventy.",
-    )
-    parser.add_argument(
-        "--retry-failed-notifications",
-        action="store_true",
-        help="Ponowić wysyłkę powiadomień oznaczonych jako failed w notification_history.csv.",
-    )
-
-    args = parser.parse_args()
-
-    # configure logging
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
-
-    chosen_headless = args.headless if args.headless is not None else HEADLESS
-
+def _run_once(args: argparse.Namespace, chosen_headless: bool) -> None:
     failed_queries: list[str] = []
 
     if args.dry_run:
@@ -245,12 +170,125 @@ def main() -> None:
         try:
             retry_results = retry_failed_notifications()
             logging.info(
-                "Retry powiadomie\u0144: %d wpisów przetworzonych.",
+                "Retry powiadomień: %d wpisów przetworzonych.",
                 len(retry_results),
             )
         except Exception:
-            logging.exception("Retry powiadomie\u0144 nie powi\u00f3d\u0142 si\u0119")
+            logging.exception("Retry powiadomień nie powiódł się")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Otomoto scraper")
+    parser.add_argument(
+        "--headless",
+        dest="headless",
+        action="store_true",
+        help="Uruchom przeglądarkę w trybie headless (nadpisuje config).",
+    )
+    parser.add_argument(
+        "--no-headless",
+        dest="headless",
+        action="store_false",
+        help="Uruchom przeglądarkę w trybie okienkowym (nadpisuje config).",
+    )
+    parser.add_argument(
+        "--verbose", action="store_true", help="Włącz verbose logging (DEBUG)."
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Wyświetl plan kwerend bez pobierania stron ani zapisu.",
+    )
+    parser.add_argument(
+        "--run-enrichment",
+        action="store_true",
+        help="Po zakończeniu scrapingu uruchom enrichment worker dla kolejki ofert.",
+    )
+    parser.add_argument(
+        "--retry-failed-enrichment",
+        action="store_true",
+        help="Przy --run-enrichment ponów także wpisy wcześniej oznaczone jako failed.",
+    )
+    parser.add_argument(
+        "--enrichment-limit",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Ogranicz liczbę pozycji przetwarzanych przez enrichment worker w jednym uruchomieniu.",
+    )
+    parser.add_argument(
+        "--run-llm",
+        action="store_true",
+        help="Po enrichmencie uruchom warstwę LLM review dla wybranych kandydatów.",
+    )
+    parser.add_argument(
+        "--llm-limit",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Ogranicz liczbę ofert wysyłanych do LLM w jednym uruchomieniu.",
+    )
+    parser.add_argument(
+        "--llm-model",
+        default=None,
+        help="Model OpenAI (nadpisuje wartość z preferences).",
+    )
+    parser.add_argument(
+        "--run-notifications",
+        action="store_true",
+        help="Po zakończeniu analityki uruchom warstwę powiadomień i zapisz eventy.",
+    )
+    parser.add_argument(
+        "--retry-failed-notifications",
+        action="store_true",
+        help="Ponowić wysyłkę powiadomień oznaczonych jako failed w notification_history.csv.",
+    )
+    parser.add_argument(
+        "--loop",
+        action="store_true",
+        help="Uruchamiaj cykl scrapowania w pętli do czasu przerwania przez Ctrl+C.",
+    )
+    parser.add_argument(
+        "--loop-interval",
+        type=int,
+        default=1800,
+        metavar="SEC",
+        help="Przerwa między iteracjami pętli w sekundach (domyślnie: 1800 = 30 min).",
+    )
+
+    args = parser.parse_args()
+
+    # configure logging
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+    chosen_headless = args.headless if args.headless is not None else HEADLESS
+
+    if args.loop:
+        logging.info("Tryb pętli: interwał %d s. Przerwij Ctrl+C aby zatrzymać.", args.loop_interval)
+        iteration = 0
+        while True:
+            iteration += 1
+            logging.info("--- Pętla: iteracja %d ---", iteration)
+            try:
+                _run_once(args, chosen_headless)
+            except KeyboardInterrupt:
+                raise
+            except Exception:
+                logging.exception("Nieoczekiwany błąd w iteracji %d, kontynuuję pętlę.", iteration)
+            logging.info("Następna iteracja za %d s. Ctrl+C aby przerwać.", args.loop_interval)
+            try:
+                time.sleep(args.loop_interval)
+            except KeyboardInterrupt:
+                raise
+    else:
+        _run_once(args, chosen_headless)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        logging.info("Przerwano przez użytkownika (Ctrl+C).")
