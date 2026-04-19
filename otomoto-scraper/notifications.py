@@ -72,6 +72,7 @@ class NotificationState:
     last_notification_event: str
     last_notification_at: str
     updated_at: str
+    llm_notified_verdict: str
 
 
 @dataclass(slots=True)
@@ -90,6 +91,7 @@ class NotificationRecord:
     final_score: int
     confidence_score: int
     decision_bucket: str
+    llm_summary: str
 
 
 def _parse_bool(value: str | bool | None) -> bool:
@@ -113,6 +115,7 @@ def _notification_state_fieldnames() -> list[str]:
         "last_notification_event",
         "last_notification_at",
         "updated_at",
+        "llm_notified_verdict",
     ]
 
 
@@ -132,6 +135,7 @@ def _notification_history_fieldnames() -> list[str]:
         "final_score",
         "confidence_score",
         "decision_bucket",
+        "llm_summary",
     ]
 
 
@@ -161,6 +165,7 @@ def load_notification_state(state_file: Path = NOTIFICATION_STATE_FILE) -> dict[
                 last_notification_event=str(row.get("last_notification_event") or "").strip().lower(),
                 last_notification_at=str(row.get("last_notification_at") or "").strip(),
                 updated_at=str(row.get("updated_at") or "").strip(),
+                llm_notified_verdict=str(row.get("llm_notified_verdict") or "").strip().lower(),
             )
 
     return states
@@ -399,6 +404,18 @@ def _is_notification_eligible(result: dict[str, Any], row: dict[str, Any], filte
     if _is_suspicious_unverified_listing(result, row):
         return False
 
+    block_llm_rejected = bool(filters.get("block_llm_rejected", True))
+    if block_llm_rejected:
+        llm_verdict_val = str(row.get("llm_verdict") or "").strip().lower()
+        if llm_verdict_val == "reject":
+            return False
+
+    block_llm_high_risk = bool(filters.get("block_llm_high_risk", True))
+    if block_llm_high_risk:
+        llm_risk_level_val = str(row.get("llm_risk_level") or "").strip().lower()
+        if llm_risk_level_val == "high":
+            return False
+
     return True
 
 
@@ -438,6 +455,7 @@ def _current_state_from_listing(
         last_notification_event=(previous_state.last_notification_event if previous_state else ""),
         last_notification_at=(previous_state.last_notification_at if previous_state else ""),
         updated_at=now_iso,
+        llm_notified_verdict=(previous_state.llm_notified_verdict if previous_state else ""),
     )
 
 
@@ -449,6 +467,7 @@ def determine_notification_event(
     current_state: NotificationState,
     previous_state: NotificationState | None,
     *,
+    row: dict[str, Any],
     filters: dict[str, Any],
     today: date,
     now_utc: datetime,
@@ -472,6 +491,16 @@ def determine_notification_event(
 
     if current_state.first_seen_date == today.isoformat() and previous_state is None:
         return "new-listing"
+
+    llm_verdict = str(row.get("llm_verdict") or "").strip().lower()
+    llm_risk_level = str(row.get("llm_risk_level") or "").strip().lower()
+    llm_notified_verdict = previous_state.llm_notified_verdict if previous_state else ""
+    if (
+        llm_verdict == "approve"
+        and llm_risk_level in {"low", "medium"}
+        and llm_notified_verdict != "approve"
+    ):
+        return "llm-approved"
 
     if previous_state is not None and _bucket_rank(current_state.decision_bucket) > _bucket_rank(previous_state.decision_bucket):
         target_buckets_cfg = filters.get("bucket_upgrade_target_buckets")
@@ -533,6 +562,10 @@ def _build_reason_summary(event_type: str, result: dict[str, Any], row: dict[str
     if short_reasons:
         fragments.append("signals=" + ", ".join(short_reasons))
 
+    llm_summary = str(row.get("llm_summary") or "").strip()
+    if llm_summary:
+        fragments.append(f"llm={llm_summary[:80]}")
+
     return " | ".join(fragments)
 
 
@@ -559,18 +592,22 @@ def _build_notification_record(
         final_score=safe_int(result.get("final_score")) or 0,
         confidence_score=safe_int(result.get("confidence_score")) or 0,
         decision_bucket=str(result.get("decision_bucket") or "ignore").strip().lower(),
+        llm_summary=str(row.get("llm_summary") or "").strip(),
     )
 
 
 def _format_notification_message(record: NotificationRecord) -> str:
-    return (
-        f"[{record.event_type}] {record.query_name}\n"
-        f"{record.title}\n"
-        f"Cena: {record.price_pln} PLN | final={record.final_score} | confidence={record.confidence_score}\n"
-        f"Bucket: {record.decision_bucket}\n"
-        f"Powod: {record.notification_reason_summary}\n"
-        f"{record.link}"
-    )
+    parts = [
+        f"[{record.event_type}] {record.query_name}",
+        record.title,
+        f"Cena: {record.price_pln} PLN | final={record.final_score} | confidence={record.confidence_score}",
+        f"Bucket: {record.decision_bucket}",
+        f"Powod: {record.notification_reason_summary}",
+    ]
+    if record.llm_summary:
+        parts.append(f"LLM: {record.llm_summary}")
+    parts.append(record.link)
+    return "\n".join(parts)
 
 
 def _emit_log_notification(record: NotificationRecord) -> NotificationRecord:
@@ -695,6 +732,7 @@ def run(
                 event_type = determine_notification_event(
                     current_state,
                     previous_state,
+                    row=row,
                     filters=filters,
                     today=today,
                     now_utc=now_utc,
@@ -702,6 +740,8 @@ def run(
                 if event_type is not None:
                     current_state.last_notification_event = event_type
                     current_state.last_notification_at = now_iso
+                    if event_type == "llm-approved":
+                        current_state.llm_notified_verdict = "approve"
                     for channel in channels:
                         channel_type = str(channel.get("type") or NOTIFICATION_CHANNEL_LOG).strip().lower()
                         record = _build_notification_record(
@@ -771,6 +811,7 @@ def retry_failed_notifications(
             final_score=safe_int(row.get("final_score")) or 0,
             confidence_score=safe_int(row.get("confidence_score")) or 0,
             decision_bucket=str(row.get("decision_bucket") or "ignore").strip().lower(),
+            llm_summary=str(row.get("llm_summary") or "").strip(),
         )
 
         target_channel_type = record.notification_channel

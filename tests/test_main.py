@@ -42,7 +42,7 @@ def test_main_runs_enrichment_when_flag_is_set(monkeypatch):
     main.main()
 
     assert called["process"] == 1
-    assert called["enrichment"] == {"retry_failed": True}
+    assert called["enrichment"] == {"retry_failed": True, "limit": None}
     assert called["analytics"] == [("q1", "x.csv")]
 
 

@@ -204,7 +204,7 @@ def main() -> None:
             for query_name in failed_queries:
                 logging.warning("- %s", query_name)
 
-    if args.run_enrichment:
+    if args.run_enrichment and not args.dry_run:
         try:
             enrichment_results = run_enrichment_worker(
                 retry_failed=args.retry_failed_enrichment,
@@ -218,7 +218,7 @@ def main() -> None:
         except Exception:
             logging.exception("Enrichment worker nie powiódł się")
 
-    if args.run_llm:
+    if args.run_llm and not args.dry_run:
         try:
             llm_results = run_llm_worker(
                 model=args.llm_model,
@@ -231,7 +231,7 @@ def main() -> None:
         except Exception:
             logging.exception("LLM review nie powiodło się")
 
-    if args.run_notifications:
+    if args.run_notifications and not args.dry_run:
         try:
             notification_results = run_notifications_pipeline()
             logging.info(

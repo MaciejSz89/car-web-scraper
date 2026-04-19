@@ -498,3 +498,157 @@ def test_notifications_skip_low_confidence_listing(tmp_path, monkeypatch):
     )
 
     assert records == []
+
+
+def test_notifications_block_llm_rejected(tmp_path, monkeypatch):
+    today = date.today().isoformat()
+    csv_path = tmp_path / "cars.csv"
+    analytics_path = tmp_path / "analytics" / "cars-analysis.json"
+    state_path = tmp_path / "notification_state.csv"
+    history_path = tmp_path / "notification_history.csv"
+
+    row = _base_csv_row(today)
+    row["llm_verdict"] = "reject"
+    row["llm_risk_level"] = "medium"
+    _write_csv(csv_path, list(row.keys()), [row])
+    _write_analysis(analytics_path, [_base_analysis_row()])
+
+    monkeypatch.setattr(notifications, "ANALYTICS_DIR", tmp_path / "analytics")
+    monkeypatch.setattr(notifications, "load_preferences", lambda: {
+        "profile_name": "test",
+        "global": {
+            "notification_filters": {
+                "min_final_score": 65,
+                "require_hard_filter_pass": True,
+                "allowed_buckets": ["candidate", "high-priority"],
+            }
+        },
+        "queries": {},
+    })
+
+    records = notifications.run(
+        queries=[{"name": "Test Query", "csv_file": str(csv_path)}],
+        state_file=state_path,
+        history_file=history_path,
+    )
+
+    assert records == []
+
+
+def test_notifications_block_llm_high_risk(tmp_path, monkeypatch):
+    today = date.today().isoformat()
+    csv_path = tmp_path / "cars.csv"
+    analytics_path = tmp_path / "analytics" / "cars-analysis.json"
+    state_path = tmp_path / "notification_state.csv"
+    history_path = tmp_path / "notification_history.csv"
+
+    row = _base_csv_row(today)
+    row["llm_verdict"] = "review"
+    row["llm_risk_level"] = "high"
+    _write_csv(csv_path, list(row.keys()), [row])
+    _write_analysis(analytics_path, [_base_analysis_row()])
+
+    monkeypatch.setattr(notifications, "ANALYTICS_DIR", tmp_path / "analytics")
+    monkeypatch.setattr(notifications, "load_preferences", lambda: {
+        "profile_name": "test",
+        "global": {
+            "notification_filters": {
+                "min_final_score": 65,
+                "require_hard_filter_pass": True,
+                "allowed_buckets": ["candidate", "high-priority"],
+            }
+        },
+        "queries": {},
+    })
+
+    records = notifications.run(
+        queries=[{"name": "Test Query", "csv_file": str(csv_path)}],
+        state_file=state_path,
+        history_file=history_path,
+    )
+
+    assert records == []
+
+
+def test_notifications_emit_llm_approved_once(tmp_path, monkeypatch):
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    today = date.today().isoformat()
+    csv_path = tmp_path / "cars.csv"
+    analytics_path = tmp_path / "analytics" / "cars-analysis.json"
+    state_path = tmp_path / "notification_state.csv"
+    history_path = tmp_path / "notification_history.csv"
+
+    row = _base_csv_row(yesterday)
+    row["last_seen_date"] = today
+    row["llm_verdict"] = "approve"
+    row["llm_risk_level"] = "low"
+    row["llm_summary"] = "Solidna oferta bez ryzyk"
+    _write_csv(csv_path, list(row.keys()), [row])
+    _write_analysis(analytics_path, [_base_analysis_row()])
+
+    monkeypatch.setattr(notifications, "ANALYTICS_DIR", tmp_path / "analytics")
+    monkeypatch.setattr(notifications, "load_preferences", lambda: {
+        "profile_name": "test",
+        "global": {
+            "notification_filters": {
+                "min_final_score": 65,
+                "require_hard_filter_pass": True,
+                "allowed_buckets": ["candidate", "high-priority"],
+            }
+        },
+        "queries": {},
+    })
+
+    records = notifications.run(
+        queries=[{"name": "Test Query", "csv_file": str(csv_path)}],
+        state_file=state_path,
+        history_file=history_path,
+    )
+
+    assert len(records) == 1
+    assert records[0].event_type == "llm-approved"
+    assert records[0].llm_summary == "Solidna oferta bez ryzyk"
+
+    records_second = notifications.run(
+        queries=[{"name": "Test Query", "csv_file": str(csv_path)}],
+        state_file=state_path,
+        history_file=history_path,
+    )
+    assert records_second == []
+
+
+def test_notifications_llm_approved_not_fired_for_high_risk(tmp_path, monkeypatch):
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    today = date.today().isoformat()
+    csv_path = tmp_path / "cars.csv"
+    analytics_path = tmp_path / "analytics" / "cars-analysis.json"
+    state_path = tmp_path / "notification_state.csv"
+    history_path = tmp_path / "notification_history.csv"
+
+    row = _base_csv_row(yesterday)
+    row["last_seen_date"] = today
+    row["llm_verdict"] = "approve"
+    row["llm_risk_level"] = "high"
+    _write_csv(csv_path, list(row.keys()), [row])
+    _write_analysis(analytics_path, [_base_analysis_row()])
+
+    monkeypatch.setattr(notifications, "ANALYTICS_DIR", tmp_path / "analytics")
+    monkeypatch.setattr(notifications, "load_preferences", lambda: {
+        "profile_name": "test",
+        "global": {
+            "notification_filters": {
+                "min_final_score": 65,
+                "require_hard_filter_pass": True,
+                "allowed_buckets": ["candidate", "high-priority"],
+            }
+        },
+        "queries": {},
+    })
+
+    records = notifications.run(
+        queries=[{"name": "Test Query", "csv_file": str(csv_path)}],
+        state_file=state_path,
+        history_file=history_path,
+    )
+
+    assert records == []
