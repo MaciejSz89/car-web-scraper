@@ -289,15 +289,35 @@ def build_prompt(
     equipment_text = ", ".join(equipment[:30]) if equipment else "brak danych"
 
     enrichment_flags = str(listing_row.get("details_enrichment_flags") or "brak")
+
+    # --- damage ---
     is_damaged_raw = str(listing_row.get("is_damaged") or "0").strip()
     details_damaged_flag = str(listing_row.get("details_damaged_flag") or "").strip()
+    # also read directly from sidecar payload (handles stale CSV from pre-REQ-054 enrichments)
+    payload_params = detail.get("parameters") if isinstance(detail.get("parameters"), dict) else {}
+    payload_damaged_raw = payload_params.get("damaged")
+    payload_damaged_truthy = (
+        payload_damaged_raw not in (None, "", [], {})
+        and str(payload_damaged_raw).strip().lower() not in {"0", "false", "no", "nie"}
+    )
     damage_status = "brak sygnałów uszkodzenia"
-    if is_damaged_raw in ("1", "true") or details_damaged_flag.lower() in ("true", "1", "yes"):
+    if is_damaged_raw in ("1", "true") or details_damaged_flag.lower() in ("true", "1", "yes") or payload_damaged_truthy:
         damage_status = "UWAGA: oferta oznaczona jako uszkodzona (oceń czy uszkodzenie jest drobne/naprawialne czy dyskwalifikujące)"
 
+    # --- import / country of origin ---
     imported_flag_raw = str(listing_row.get("details_imported_flag") or "0").strip()
     country_origin_val = str(listing_row.get("details_country_origin") or "").strip()
-    if imported_flag_raw in ("1", "true") or country_origin_val:
+    # also read directly from sidecar payload
+    payload_imported_raw = payload_params.get("is_imported_car")
+    payload_imported_truthy = (
+        payload_imported_raw not in (None, "", [], {})
+        and str(payload_imported_raw).strip().lower() not in {"0", "false", "no", "nie"}
+    )
+    if not country_origin_val:
+        payload_country = str(payload_params.get("country_origin") or "").strip()
+        if payload_country and payload_country.lower() != "country_origin":
+            country_origin_val = payload_country
+    if imported_flag_raw in ("1", "true") or payload_imported_truthy or country_origin_val:
         import_parts = ["pojazd importowany"]
         if country_origin_val:
             import_parts.append(f"kraj: {country_origin_val}")
