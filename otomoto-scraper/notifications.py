@@ -381,7 +381,7 @@ def _is_notification_eligible(result: dict[str, Any], row: dict[str, Any], filte
     confidence_score = safe_int(result.get("confidence_score")) or 0
     decision_bucket = str(result.get("decision_bucket") or "ignore").strip().lower()
     hard_filter_passed = _parse_bool(result.get("hard_filter_passed"))
-    is_damaged = _parse_bool(row.get("is_damaged"))
+    is_damaged = _parse_bool(row.get("is_damaged")) or _parse_bool(row.get("details_damaged_flag"))
     enrichment_flags_raw = result.get("enrichment_flags")
     enrichment_flags = {
         str(flag).strip().lower()

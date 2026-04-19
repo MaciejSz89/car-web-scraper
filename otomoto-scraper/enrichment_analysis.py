@@ -206,6 +206,33 @@ def _score_consistency(payload: dict[str, Any], listing_row: dict[str, Any] | No
     return score, reasons, flags
 
 
+def _score_parameters(parameters: Any) -> tuple[int, list[str], list[str]]:
+    if not isinstance(parameters, dict):
+        return 0, [], []
+
+    score = 0
+    reasons: list[str] = []
+    flags: list[str] = []
+
+    damaged_raw = parameters.get("damaged")
+    if damaged_raw not in (None, "", [], {}):
+        normalized = str(damaged_raw).strip().lower()
+        if normalized not in {"0", "false", "no", "nie"}:
+            score -= 25
+            _append_unique(reasons, "strukturalna flaga uszkodzenia z detail page")
+            _append_unique(flags, "damage_structural")
+
+    no_accident_raw = parameters.get("no_accident")
+    if no_accident_raw not in (None, "", [], {}):
+        normalized = str(no_accident_raw).strip().lower()
+        if normalized not in {"0", "false", "no", "nie"}:
+            score += 8
+            _append_unique(reasons, "strukturalna flaga bezwypadkowosci z detail page")
+            _append_unique(flags, "accident_free_structural")
+
+    return score, reasons, flags
+
+
 def _calculate_confidence(payload: dict[str, Any], consistency_flags: list[str]) -> int:
     confidence = 20
 
@@ -237,18 +264,20 @@ def analyze_detail_payload(
     description = clean_text(payload.get("description"))
     equipment = payload.get("equipment")
     seller = payload.get("seller")
+    parameters = payload.get("parameters") if isinstance(payload.get("parameters"), dict) else {}
 
     description_score, description_reasons, description_flags = _score_description(description)
     equipment_score, equipment_reasons, equipment_flags = _score_equipment(equipment)
     seller_score, seller_reasons, seller_flags = _score_seller(seller)
     consistency_score, consistency_reasons, consistency_flags = _score_consistency(payload, listing_row)
+    parameters_score, parameters_reasons, parameters_flags = _score_parameters(parameters)
 
-    raw_score = 50 + description_score + equipment_score + seller_score + consistency_score
+    raw_score = 50 + description_score + equipment_score + seller_score + consistency_score + parameters_score
     enrichment_score = max(0, min(100, raw_score))
     enrichment_confidence = _calculate_confidence(payload, consistency_flags)
 
-    enrichment_reasons = description_reasons + equipment_reasons + seller_reasons + consistency_reasons
-    enrichment_flags = description_flags + equipment_flags + seller_flags + consistency_flags
+    enrichment_reasons = description_reasons + equipment_reasons + seller_reasons + consistency_reasons + parameters_reasons
+    enrichment_flags = description_flags + equipment_flags + seller_flags + consistency_flags + parameters_flags
 
     return EnrichmentAnalysisResult(
         listing_id=listing_id,
@@ -259,7 +288,7 @@ def analyze_detail_payload(
         description_signals=description_flags,
         equipment_signals=equipment_flags,
         seller_signals=seller_flags,
-        consistency_signals=consistency_flags,
+        consistency_signals=consistency_flags + parameters_flags,
     )
 
 

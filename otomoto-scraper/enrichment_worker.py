@@ -345,7 +345,13 @@ def build_csv_detail_summary(payload: dict[str, Any], listing_row: dict[str, str
 
     no_accident_flag = (
         "accident_free_declared" in analysis_result.enrichment_flags
+        or "accident_free_structural" in analysis_result.enrichment_flags
         or _parameter_flag(parameters, "no_accident") is True
+    )
+    damaged_flag = (
+        "damage_declared" in analysis_result.enrichment_flags
+        or "damage_structural" in analysis_result.enrichment_flags
+        or _parameter_flag(parameters, "damaged") is True
     )
     service_record_flag = (
         "aso_service" in analysis_result.enrichment_flags
@@ -363,6 +369,7 @@ def build_csv_detail_summary(payload: dict[str, Any], listing_row: dict[str, str
         "vin": _parameter_value(parameters, "vin"),
         "country_origin": _parameter_value(parameters, "country_origin"),
         "no_accident_flag": _stringify_bool(no_accident_flag),
+        "damaged_flag": _stringify_bool(damaged_flag),
         "service_record_flag": _stringify_bool(service_record_flag),
         "imported_flag": _stringify_bool(imported_flag),
         "enrichment_score": str(analysis_result.enrichment_score),
@@ -548,6 +555,7 @@ def update_listing_enrichment_status(
         "details_vin",
         "details_country_origin",
         "details_no_accident_flag",
+        "details_damaged_flag",
         "details_service_record_flag",
         "details_imported_flag",
         "details_enrichment_score",
@@ -581,6 +589,7 @@ def update_listing_enrichment_status(
             row["details_vin"] = detail_summary.get("vin", "")
             row["details_country_origin"] = detail_summary.get("country_origin", "")
             row["details_no_accident_flag"] = detail_summary.get("no_accident_flag", "")
+            row["details_damaged_flag"] = detail_summary.get("damaged_flag", "")
             row["details_service_record_flag"] = detail_summary.get("service_record_flag", "")
             row["details_imported_flag"] = detail_summary.get("imported_flag", "")
             row["details_enrichment_score"] = detail_summary.get("enrichment_score", "")

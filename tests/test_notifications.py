@@ -51,6 +51,7 @@ def _base_csv_row(today: str) -> dict[str, str]:
         "details_vin": "",
         "details_country_origin": "",
         "details_no_accident_flag": "",
+        "details_damaged_flag": "",
         "details_service_record_flag": "",
         "details_imported_flag": "",
         "details_enrichment_score": "",
