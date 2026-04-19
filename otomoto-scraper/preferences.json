@@ -43,6 +43,7 @@
       "bucket_upgrade_target_buckets": ["high-priority"],
       "suppress_bucket_upgrade_after_reactivation_hours": 72,
       "exclude_damaged_listings": true,
+      "damaged_handling": "llm",
       "blocked_enrichment_flags": [
         "airbags_deployed",
         "severe_front_damage",
