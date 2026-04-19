@@ -59,7 +59,25 @@
         "bot_token_env": "OTOMOTO_TELEGRAM_BOT_TOKEN",
         "chat_id_env": "OTOMOTO_TELEGRAM_CHAT_ID",
         "disable_web_page_preview": true
+      },
+      {
+        "type": "telegram",
+        "bot_token_env": "OTOMOTO_TELEGRAM_BOT_TOKEN",
+        "chat_id_env": "OTOMOTO_TELEGRAM_CHAT_ID_2",
+        "disable_web_page_preview": true
       }
     ]
+  },
+  "queries": {
+    "Honda Jazz": {
+      "notification_filters": {
+        "min_confidence_score": 60
+      }
+    },
+    "Volkswagen Golf Sportsvan": {
+      "notification_filters": {
+        "min_confidence_score": 70
+      }
+    }
   }
 }

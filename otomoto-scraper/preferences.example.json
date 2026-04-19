@@ -1,5 +1,15 @@
 {
   "profile_name": "default",
+  "llm": {
+    "model": "gpt-4o-mini",
+    "api_key_env": "OPENAI_API_KEY",
+    "max_tokens": 800,
+    "temperature": 0.1,
+    "max_candidates_per_run": 5,
+    "llm_cooldown_days": 30,
+    "min_final_score": 60,
+    "allowed_buckets": ["high-priority", "candidate"]
+  },
   "global": {
     "hard_filters": {
       "max_price_pln": 95000,
@@ -89,6 +99,11 @@
           "Manualna": 6,
           "Automatyczna": 0
         }
+      }
+    },
+    "Honda Jazz": {
+      "notification_filters": {
+        "min_confidence_score": 60
       }
     }
   }

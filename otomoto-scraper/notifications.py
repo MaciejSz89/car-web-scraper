@@ -719,3 +719,81 @@ def run(
     save_notification_state(next_states, state_file=state_file)
     append_notification_history(sent_records, history_file=history_file)
     return sent_records
+
+
+def retry_failed_notifications(
+    history_file: Path = NOTIFICATION_HISTORY_FILE,
+) -> list[NotificationRecord]:
+    """Re-send all entries from notification_history.csv with notification_status='failed'.
+
+    Does not modify notification_state.csv — the state was already updated when the
+    original event fired. Only the transport (Telegram/etc.) failed, so we just retry
+    the delivery using the same record data.
+    """
+    if not history_file.exists():
+        logger.info("Brak pliku historii powiadomie\u0144 — nic do ponowienia.")
+        return []
+
+    preferences = load_preferences()
+
+    failed_rows: list[dict[str, str]] = []
+    with open(history_file, "r", newline="", encoding="utf-8-sig") as fh:
+        reader = csv.DictReader(fh, delimiter=";")
+        for row in reader:
+            if str(row.get("notification_status") or "").strip().lower() == "failed":
+                failed_rows.append(dict(row))
+
+    if not failed_rows:
+        print("Brak nieudanych powiadomie\u0144 do ponowienia.")
+        return []
+
+    logger.info("retry_failed_notifications: %d wpis\u00f3w do ponowienia.", len(failed_rows))
+
+    retried: list[NotificationRecord] = []
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    for row in failed_rows:
+        query_name = str(row.get("query_name") or "").strip()
+        channels = _get_notification_channels(preferences, query_name)
+
+        record = NotificationRecord(
+            listing_id=str(row.get("listing_id") or "").strip(),
+            query_name=query_name,
+            event_type=str(row.get("event_type") or "").strip(),
+            notification_channel=str(row.get("notification_channel") or NOTIFICATION_CHANNEL_LOG).strip(),
+            notification_decision="send",
+            notification_sent_at=now_iso,
+            notification_status="sent",
+            notification_reason_summary=str(row.get("notification_reason_summary") or "").strip(),
+            title=str(row.get("title") or "").strip(),
+            link=str(row.get("link") or "").strip(),
+            price_pln=safe_int(row.get("price_pln")),
+            final_score=safe_int(row.get("final_score")) or 0,
+            confidence_score=safe_int(row.get("confidence_score")) or 0,
+            decision_bucket=str(row.get("decision_bucket") or "ignore").strip().lower(),
+        )
+
+        target_channel_type = record.notification_channel
+        matched_channel = next(
+            (
+                ch for ch in channels
+                if str(ch.get("type") or NOTIFICATION_CHANNEL_LOG).strip().lower() == target_channel_type
+            ),
+            {"type": target_channel_type},
+        )
+
+        result_record = _emit_notification(record, matched_channel)
+        retried.append(result_record)
+        logger.info(
+            "retry_failed_notifications: listing_id=%s channel=%s status=%s",
+            result_record.listing_id,
+            result_record.notification_channel,
+            result_record.notification_status,
+        )
+
+    sent = sum(r.notification_status == "sent" for r in retried)
+    failed = sum(r.notification_status == "failed" for r in retried)
+    print(f"Retry powiadomie\u0144: {len(retried)} pr\u00f3b, {sent} wys\u0142anych, {failed} nieudanych.")
+
+    append_notification_history(retried, history_file=history_file)
+    return retried

@@ -4,8 +4,9 @@ import argparse
 import logging
 
 from analytics import save_query_analysis
-from notifications import run as run_notifications_pipeline
+from notifications import run as run_notifications_pipeline, retry_failed_notifications
 from enrichment_worker import run as run_enrichment_worker
+from llm_worker import run as run_llm_worker
 from scraper import get_html_pages
 from parser import get_cars_from_content
 from storage import upsert_cars_to_csv
@@ -140,9 +141,31 @@ def main() -> None:
         help="Ogranicz liczbę pozycji przetwarzanych przez enrichment worker w jednym uruchomieniu.",
     )
     parser.add_argument(
+        "--run-llm",
+        action="store_true",
+        help="Po enrichmencie uruchom warstwę LLM review dla wybranych kandydatów.",
+    )
+    parser.add_argument(
+        "--llm-limit",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Ogranicz liczbę ofert wysyłanych do LLM w jednym uruchomieniu.",
+    )
+    parser.add_argument(
+        "--llm-model",
+        default=None,
+        help="Model OpenAI (nadpisuje wartość z preferences).",
+    )
+    parser.add_argument(
         "--run-notifications",
         action="store_true",
         help="Po zakończeniu analityki uruchom warstwę powiadomień i zapisz eventy.",
+    )
+    parser.add_argument(
+        "--retry-failed-notifications",
+        action="store_true",
+        help="Ponowić wysyłkę powiadomień oznaczonych jako failed w notification_history.csv.",
     )
 
     args = parser.parse_args()
@@ -195,6 +218,19 @@ def main() -> None:
         except Exception:
             logging.exception("Enrichment worker nie powiódł się")
 
+    if args.run_llm:
+        try:
+            llm_results = run_llm_worker(
+                model=args.llm_model,
+                limit=args.llm_limit,
+            )
+            logging.info(
+                "LLM review zakończył się oceną %d ofert.",
+                len(llm_results),
+            )
+        except Exception:
+            logging.exception("LLM review nie powiodło się")
+
     if args.run_notifications:
         try:
             notification_results = run_notifications_pipeline()
@@ -204,6 +240,16 @@ def main() -> None:
             )
         except Exception:
             logging.exception("Warstwa powiadomien nie powiodla sie")
+
+    if args.retry_failed_notifications:
+        try:
+            retry_results = retry_failed_notifications()
+            logging.info(
+                "Retry powiadomie\u0144: %d wpisów przetworzonych.",
+                len(retry_results),
+            )
+        except Exception:
+            logging.exception("Retry powiadomie\u0144 nie powi\u00f3d\u0142 si\u0119")
 
 
 if __name__ == "__main__":
