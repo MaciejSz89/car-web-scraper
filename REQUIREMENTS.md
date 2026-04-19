@@ -198,6 +198,7 @@ Aktualizujemy go przy każdym nowym, zmienionym, wykonanym lub usuniętym wymaga
 ### 2026-04-19
 
 - Dodano LLM on-demand w warstwie powiadomień: oferty bez oceny LLM są oceniane przez LLM tuż przed wysłaniem powiadomienia (limit `llm.max_notification_llm_calls` per run, domyślnie 5).
+- Naprawiono `upsert_cars_to_csv` w `storage.py`: hardcoded `fieldnames` nie zawierał `details_damaged_flag` ani pól LLM — `writerows` rzucał `ValueError` przy istniejących CSV wzbogaconych przez enrichment/LLM. Naprawiono przez: dodanie brakującego pola do baseline, scalanie baseline z nagłówkami istniejącego CSV (nowe kolumny dopisywane na końcu), `extrasaction="ignore"` jako dodatkowe zabezpieczenie.
 
 ### 2026-04-15
 
