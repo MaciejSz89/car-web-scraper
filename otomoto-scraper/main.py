@@ -110,6 +110,8 @@ def _run_once(args: argparse.Namespace, chosen_headless: bool) -> None:
         logging.info("DRY RUN: nie będą pobierane strony, tylko pokazany plan kwerend")
         for query in QUERIES:
             logging.info("Kwerenda: %s -> %s (max_pages=%s)", query.get("name"), query.get("start_url"), query.get("max_pages"))
+    elif args.skip_scraping:
+        logging.info("--skip-scraping: pomijam scraping i enrichment.")
     else:
         for query in QUERIES:
             try:
@@ -130,7 +132,7 @@ def _run_once(args: argparse.Namespace, chosen_headless: bool) -> None:
             for query_name in failed_queries:
                 logging.warning("- %s", query_name)
 
-    if args.run_enrichment and not args.dry_run:
+    if args.run_enrichment and not args.dry_run and not args.skip_scraping:
         try:
             _prefs = load_preferences()
             _enrichment_cfg = _prefs.get("enrichment") or {}
@@ -208,6 +210,11 @@ def main() -> None:
         "--dry-run",
         action="store_true",
         help="Wyświetl plan kwerend bez pobierania stron ani zapisu.",
+    )
+    parser.add_argument(
+        "--skip-scraping",
+        action="store_true",
+        help="Pomiń scraping i enrichment; uruchom tylko dalsze etapy (LLM, notyfikacje).",
     )
     parser.add_argument(
         "--run-enrichment",
