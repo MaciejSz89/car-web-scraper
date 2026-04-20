@@ -265,7 +265,22 @@ def wait_until_article_count_stabilizes(
     max_rounds: int = 10,
     pause_range_ms: tuple[int, int] = (900, 2200),
     scroll_step_range_px: tuple[int, int] = (1400, 4200),
+    first_article_timeout_ms: int = 20000,
 ) -> int:
+    # Wait for the first article to appear before starting the stabilisation loop.
+    # On SPAs like Otomoto, React may render the listing a few seconds after
+    # domcontentloaded — without this guard the loop exits after 2 consecutive
+    # zero-count rounds and incorrectly concludes there are no listings.
+    try:
+        page.wait_for_selector("article[data-id]", timeout=first_article_timeout_ms)
+        logger.info("Pierwszy article[data-id] zaladowany; startuje stabilizacja.")
+    except PlaywrightTimeoutError:
+        logger.info(
+            "Brak article[data-id] po %d ms oczekiwania; strona prawdopodobnie pusta.",
+            first_article_timeout_ms,
+        )
+        return 0
+
     previous_count = -1
     same_count_rounds = 0
 

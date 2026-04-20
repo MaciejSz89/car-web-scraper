@@ -502,7 +502,8 @@ def test_notifications_skip_low_confidence_listing(tmp_path, monkeypatch):
     assert records == []
 
 
-def test_notifications_block_llm_rejected(tmp_path, monkeypatch):
+def test_notifications_llm_reject_does_not_block(tmp_path, monkeypatch):
+    """LLM verdict=reject no longer blocks notifications; listing should still fire new-listing."""
     today = date.today().isoformat()
     csv_path = tmp_path / "cars.csv"
     analytics_path = tmp_path / "analytics" / "cars-analysis.json"
@@ -534,10 +535,12 @@ def test_notifications_block_llm_rejected(tmp_path, monkeypatch):
         history_file=history_path,
     )
 
-    assert records == []
+    assert len(records) == 1
+    assert records[0].event_type == "new-listing"
 
 
-def test_notifications_block_llm_high_risk(tmp_path, monkeypatch):
+def test_notifications_llm_high_risk_does_not_block(tmp_path, monkeypatch):
+    """LLM risk_level=high no longer blocks notifications; listing should still fire new-listing."""
     today = date.today().isoformat()
     csv_path = tmp_path / "cars.csv"
     analytics_path = tmp_path / "analytics" / "cars-analysis.json"
@@ -569,10 +572,13 @@ def test_notifications_block_llm_high_risk(tmp_path, monkeypatch):
         history_file=history_path,
     )
 
-    assert records == []
+    assert len(records) == 1
+    assert records[0].event_type == "new-listing"
 
 
-def test_notifications_emit_llm_approved_once(tmp_path, monkeypatch):
+def test_notifications_llm_approve_does_not_generate_event(tmp_path, monkeypatch):
+    """LLM verdict=approve no longer generates a dedicated event (llm-approved removed).
+    Listing first seen yesterday and not price-changed should produce no notification."""
     yesterday = (date.today() - timedelta(days=1)).isoformat()
     today = date.today().isoformat()
     csv_path = tmp_path / "cars.csv"
@@ -607,19 +613,13 @@ def test_notifications_emit_llm_approved_once(tmp_path, monkeypatch):
         history_file=history_path,
     )
 
-    assert len(records) == 1
-    assert records[0].event_type == "llm-approved"
-    assert records[0].llm_summary == "Solidna oferta bez ryzyk"
-
-    records_second = notifications.run(
-        queries=[{"name": "Test Query", "csv_file": str(csv_path)}],
-        state_file=state_path,
-        history_file=history_path,
-    )
-    assert records_second == []
+    assert records == []
+    assert not any(r.event_type == "llm-approved" for r in records)
 
 
-def test_notifications_llm_approved_not_fired_for_high_risk(tmp_path, monkeypatch):
+def test_notifications_no_event_for_old_listing_without_changes(tmp_path, monkeypatch):
+    """Listing first seen yesterday with no price change and no bucket upgrade
+    produces no notification (regardless of LLM verdict)."""
     yesterday = (date.today() - timedelta(days=1)).isoformat()
     today = date.today().isoformat()
     csv_path = tmp_path / "cars.csv"
@@ -693,16 +693,15 @@ def test_notifications_damaged_llm_mode_blocks_without_llm_verdict(tmp_path, mon
 
 
 def test_notifications_damaged_llm_mode_allows_with_llm_approve(tmp_path, monkeypatch):
-    """damaged_handling='llm': damaged listing with llm_verdict=approve + low risk generates notification."""
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    """damaged_handling='llm': damaged listing with llm_verdict=approve + low risk is eligible
+    and fires new-listing when first seen today."""
     today = date.today().isoformat()
     csv_path = tmp_path / "cars.csv"
     analytics_path = tmp_path / "analytics" / "cars-analysis.json"
     state_path = tmp_path / "notification_state.csv"
     history_path = tmp_path / "notification_history.csv"
 
-    row = _base_csv_row(yesterday)
-    row["last_seen_date"] = today
+    row = _base_csv_row(today)
     row["is_damaged"] = "1"
     row["llm_verdict"] = "approve"
     row["llm_risk_level"] = "low"
@@ -731,4 +730,4 @@ def test_notifications_damaged_llm_mode_allows_with_llm_approve(tmp_path, monkey
     )
 
     assert len(records) == 1
-    assert records[0].event_type == "llm-approved"
+    assert records[0].event_type == "new-listing"

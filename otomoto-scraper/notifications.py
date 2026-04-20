@@ -430,18 +430,6 @@ def _is_notification_eligible(result: dict[str, Any], row: dict[str, Any], filte
     if _is_suspicious_unverified_listing(result, row):
         return False
 
-    block_llm_rejected = bool(filters.get("block_llm_rejected", True))
-    if block_llm_rejected:
-        llm_verdict_val = str(row.get("llm_verdict") or "").strip().lower()
-        if llm_verdict_val == "reject":
-            return False
-
-    block_llm_high_risk = bool(filters.get("block_llm_high_risk", True))
-    if block_llm_high_risk:
-        llm_risk_level_val = str(row.get("llm_risk_level") or "").strip().lower()
-        if llm_risk_level_val == "high":
-            return False
-
     return True
 
 
@@ -517,16 +505,6 @@ def determine_notification_event(
 
     if current_state.first_seen_date == today.isoformat() and previous_state is None:
         return "new-listing"
-
-    llm_verdict = str(row.get("llm_verdict") or "").strip().lower()
-    llm_risk_level = str(row.get("llm_risk_level") or "").strip().lower()
-    llm_notified_verdict = previous_state.llm_notified_verdict if previous_state else ""
-    if (
-        llm_verdict == "approve"
-        and llm_risk_level in {"low", "medium"}
-        and llm_notified_verdict != "approve"
-    ):
-        return "llm-approved"
 
     if previous_state is not None and _bucket_rank(current_state.decision_bucket) > _bucket_rank(previous_state.decision_bucket):
         target_buckets_cfg = filters.get("bucket_upgrade_target_buckets")
@@ -796,22 +774,10 @@ def run(
                                     )
                                     if result_fields is not None:
                                         row.update(result_fields)
-                                        # Re-check eligibility — reject/high risk blocks notification
-                                        if not _is_notification_eligible(analysis_result, row, filters):
-                                            event_type = None
-                                            current_state.notification_eligible = False
 
                 if event_type is not None:
                     current_state.last_notification_event = event_type
                     current_state.last_notification_at = now_iso
-                    if event_type == "llm-approved":
-                        current_state.llm_notified_verdict = "approve"
-                    elif (
-                        str(row.get("llm_verdict") or "").strip().lower() == "approve"
-                        and str(row.get("llm_risk_level") or "").strip().lower() in {"low", "medium"}
-                    ):
-                        # On-demand approve — mark to prevent duplicate llm-approved on next run
-                        current_state.llm_notified_verdict = "approve"
                     for channel in channels:
                         channel_type = str(channel.get("type") or NOTIFICATION_CHANNEL_LOG).strip().lower()
                         record = _build_notification_record(

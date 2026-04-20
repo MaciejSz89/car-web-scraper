@@ -18,7 +18,7 @@ from utils import clean_text, safe_int
 
 
 DEFAULT_LLM_MODEL = "gpt-4o-mini"
-DEFAULT_MAX_TOKENS = 800
+DEFAULT_MAX_TOKENS = 1600
 DEFAULT_TEMPERATURE = 0.1
 DEFAULT_MAX_CANDIDATES_PER_RUN = 5
 DEFAULT_LLM_COOLDOWN_DAYS = 30
@@ -376,14 +376,15 @@ def build_prompt(
         "",
         "Odpowiedz WYŁĄCZNIE poprawnym obiektem JSON (bez markdown, bez żadnych dodatkowych znaków).",
         "Format odpowiedzi:",
-        '{"verdict":"approve|review|reject","risk_level":"low|medium|high","confidence":<0-100>,"summary":"jedno zdanie po polsku z najważniejszym wnioskiem","reasons":["powód 1","powód 2"]}',
+        '{"verdict":"approve|review|reject","risk_level":"low|medium|high","confidence":<0-100>,"summary":"3-5 zdań po polsku: ocena pozycji cenowej, kluczowe sygnały pozytywne i negatywne, rekomendacja działania","reasons":["konkretny powód 1","konkretny powód 2"]}',
         "",
         "Zasady:",
-        '- "approve": solidne sygnały pozytywne, brak istotnych ryzyk',
-        '- "review": wymaga weryfikacji (oględziny, sprawdzenie historii)',
-        '- "reject": istotne ryzyka, mylące ogłoszenie lub deklarowane uszkodzenia',
+        '- "approve": solidne sygnały pozytywne, brak istotnych ryzyk — wart oględzin',
+        '- "review": wymaga weryfikacji (oględziny, sprawdzenie historii VIN, pytania do sprzedawcy)',
+        '- "reject": istotne ryzyka, mylące ogłoszenie, poważne uszkodzenia lub podejrzane dane',
         "- Nie awansuj do approve wyłącznie ze względu na korzystną cenę",
-        "- Bądź zwięzły i konkretny w reasons (max 5 powodów)",
+        "- W summary napisz konkretnie: co jest dobre, co budzi wątpliwości, co warto sprawdzić",
+        "- W reasons podaj dokładne, weryfikowalne obserwacje (max 8); unikaj ogólników jak 'oferta wygląda dobrze'",
     ]
 
     return "\n".join(lines)
@@ -406,7 +407,8 @@ def call_llm(
             {
                 "role": "system",
                 "content": (
-                    "Jesteś asystentem analizującym ogłoszenia sprzedaży samochodów w Polsce. "
+        "Jesteś asystentem analizującym ogłoszenia sprzedaży samochodów w Polsce. "
+                    "Piszesz szczegółowe, konkretne oceny — unikaj ogólników. "
                     "Odpowiadasz WYŁĄCZNIE poprawnym obiektem JSON bez żadnych dodatkowych znaków."
                 ),
             },
