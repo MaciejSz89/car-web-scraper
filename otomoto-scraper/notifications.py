@@ -408,13 +408,8 @@ def _is_notification_eligible(result: dict[str, Any], row: dict[str, Any], filte
         return False
 
     if damaged_handling == "llm":
-        # Minor damage: defer to LLM — require explicit approve with non-high risk.
-        minor_damage_present = is_damaged or bool(enrichment_flags.intersection(MINOR_DAMAGE_FLAGS))
-        if minor_damage_present:
-            llm_verdict_val = str(row.get("llm_verdict") or "").strip().lower()
-            llm_risk_val = str(row.get("llm_risk_level") or "").strip().lower()
-            if llm_verdict_val != "approve" or llm_risk_val == "high":
-                return False
+        # Minor damage: pass through and let the LLM comment convey the risk.
+        # Only severe damage (already checked above) hard-blocks in this mode.
         # Apply remaining blocked flags (severe already checked above; skip minor damage flags).
         effective_blocked = blocked_enrichment_flags - SEVERE_DAMAGE_FLAGS - MINOR_DAMAGE_FLAGS
         if effective_blocked and enrichment_flags.intersection(effective_blocked):

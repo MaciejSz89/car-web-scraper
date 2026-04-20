@@ -656,8 +656,9 @@ def test_notifications_no_event_for_old_listing_without_changes(tmp_path, monkey
     assert records == []
 
 
-def test_notifications_damaged_llm_mode_blocks_without_llm_verdict(tmp_path, monkeypatch):
-    """damaged_handling='llm': damaged listing without LLM verdict must NOT generate a notification."""
+def test_notifications_damaged_llm_mode_allows_regardless_of_llm_verdict(tmp_path, monkeypatch):
+    """damaged_handling='llm': damaged listing fires new-listing regardless of llm_verdict.
+    LLM verdict is no longer a gating condition — it only provides a comment."""
     today = date.today().isoformat()
     csv_path = tmp_path / "cars.csv"
     analytics_path = tmp_path / "analytics" / "cars-analysis.json"
@@ -689,7 +690,8 @@ def test_notifications_damaged_llm_mode_blocks_without_llm_verdict(tmp_path, mon
         history_file=history_path,
     )
 
-    assert records == []
+    assert len(records) == 1
+    assert records[0].event_type == "new-listing"
 
 
 def test_notifications_damaged_llm_mode_allows_with_llm_approve(tmp_path, monkeypatch):
