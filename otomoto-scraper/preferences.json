@@ -3,6 +3,9 @@
   "llm": {
     "max_notification_llm_calls": 5
   },
+  "enrichment": {
+    "allowed_buckets": ["candidate", "high-priority"]
+  },
   "global": {
     "hard_filters": {
       "max_price_pln": 55000,

@@ -8,6 +8,7 @@ from analytics import save_query_analysis
 from notifications import run as run_notifications_pipeline, retry_failed_notifications
 from enrichment_worker import run as run_enrichment_worker
 from llm_worker import run as run_llm_worker
+from preferences import load_preferences
 from scraper import get_html_pages
 from parser import get_cars_from_content
 from storage import upsert_cars_to_csv
@@ -131,9 +132,18 @@ def _run_once(args: argparse.Namespace, chosen_headless: bool) -> None:
 
     if args.run_enrichment and not args.dry_run:
         try:
+            _prefs = load_preferences()
+            _enrichment_cfg = _prefs.get("enrichment") or {}
+            _allowed_raw = _enrichment_cfg.get("allowed_buckets")
+            _allowed_buckets: frozenset[str] | None = (
+                frozenset(str(b).strip().lower() for b in _allowed_raw if b)
+                if isinstance(_allowed_raw, list)
+                else None
+            )
             enrichment_results = run_enrichment_worker(
                 retry_failed=args.retry_failed_enrichment,
                 limit=args.enrichment_limit,
+                allowed_buckets=_allowed_buckets,
             )
             logging.info(
                 "Enrichment worker zakończył się przetworzeniem %d wpisów.",

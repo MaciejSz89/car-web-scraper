@@ -11,6 +11,9 @@
     "min_final_score": 60,
     "allowed_buckets": ["high-priority", "candidate"]
   },
+  "enrichment": {
+    "allowed_buckets": ["candidate", "high-priority"]
+  },
   "global": {
     "hard_filters": {
       "max_price_pln": 95000,

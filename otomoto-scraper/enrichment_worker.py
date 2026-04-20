@@ -795,6 +795,7 @@ def run(
     limit: int | None = None,
     retry_failed: bool = False,
     cooldown_days: int = DEFAULT_FETCH_COOLDOWN_DAYS,
+    allowed_buckets: frozenset[str] | None = None,
     fetch_delay_range_seconds: tuple[float, float] = DEFAULT_FETCH_DELAY_RANGE_SECONDS,
     fetch_html: Callable[[str], str] = fetch_listing_html,
 ) -> list[dict[str, Any]]:
@@ -856,6 +857,19 @@ def run(
                     cooldown_ids.add(listing_id)
                 continue
             if current_status == "failed" and not retry_failed:
+                continue
+
+        # Skip listings outside the allowed analytics buckets.
+        # Items with no bucket data yet (new, analytics not run) get the benefit of the doubt.
+        # Items that are skipped stay in the queue so they can be picked up if their bucket improves.
+        if allowed_buckets is not None:
+            item_bucket = get_current_decision_bucket(
+                resolved_data_dir,
+                source_csv,
+                listing_id,
+                analytics_cache,
+            )
+            if item_bucket and item_bucket not in allowed_buckets:
                 continue
 
         queue.append(item)
