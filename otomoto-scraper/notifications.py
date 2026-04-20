@@ -51,6 +51,7 @@ MIN_ENRICHMENT_CONFIDENCE_FOR_SUSPICIOUS_LISTING = 50
 NOTIFICATION_CHANNEL_LOG = "log"
 NOTIFICATION_CHANNEL_TELEGRAM = "telegram"
 DEFAULT_MAX_NOTIFICATION_LLM_CALLS = 5
+DEFAULT_MAX_NEW_LISTING_DAYS = 1
 
 BUCKET_RANKS = {
     "ignore": 0,
@@ -498,7 +499,11 @@ def determine_notification_event(
                     return None
         return "reactivated"
 
-    if current_state.first_seen_date == today.isoformat() and previous_state is None:
+    never_notified = previous_state is None or not previous_state.last_notification_event
+    first_seen = _parse_csv_date(current_state.first_seen_date)
+    days_since_first_seen = (today - first_seen).days if first_seen is not None else 9999
+    max_new_listing_days = safe_int(filters.get("max_new_listing_days")) or DEFAULT_MAX_NEW_LISTING_DAYS
+    if never_notified and days_since_first_seen <= max_new_listing_days:
         return "new-listing"
 
     if previous_state is not None and _bucket_rank(current_state.decision_bucket) > _bucket_rank(previous_state.decision_bucket):

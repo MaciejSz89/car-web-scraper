@@ -138,8 +138,61 @@ def test_notifications_emit_new_listing_once(tmp_path, monkeypatch):
     assert records_second_run == []
 
 
+def test_notifications_emit_new_listing_when_state_exists_but_never_notified(tmp_path, monkeypatch):
+    """Listing first seen today may already have a state entry from an earlier ineligible run.
+    On the next eligible run it should still fire new-listing because never_notified is True."""
+    today = date.today().isoformat()
+    csv_path = tmp_path / "cars.csv"
+    analytics_path = tmp_path / "analytics" / "cars-analysis.json"
+    state_path = tmp_path / "notification_state.csv"
+    history_path = tmp_path / "notification_history.csv"
+
+    row = _base_csv_row(today)
+    _write_csv(csv_path, list(row.keys()), [row])
+    _write_analysis(analytics_path, [_base_analysis_row()])
+
+    monkeypatch.setattr(notifications, "ANALYTICS_DIR", tmp_path / "analytics")
+    monkeypatch.setattr(notifications, "load_preferences", lambda: {
+        "profile_name": "test",
+        "global": {
+            "notification_filters": {
+                "min_final_score": 65,
+                "require_hard_filter_pass": True,
+                "allowed_buckets": ["candidate", "high-priority"],
+            }
+        },
+        "queries": {},
+    })
+
+    # Simulate a prior ineligible run by writing a state entry with no event
+    import csv as _csv
+    fieldnames = notifications._notification_state_fieldnames()
+    with open(state_path, "w", newline="", encoding="utf-8") as f:
+        writer = _csv.DictWriter(f, fieldnames=fieldnames, delimiter=";")
+        writer.writeheader()
+        writer.writerow({fn: "" for fn in fieldnames} | {
+            "listing_id": "A",
+            "query_name": "Test Query",
+            "first_seen_date": today,
+            "last_seen_date": today,
+            "is_active": "True",
+            "hard_filter_passed": "False",
+            "notification_eligible": "False",
+            "last_notification_event": "",
+        })
+
+    records = notifications.run(
+        queries=[{"name": "Test Query", "csv_file": str(csv_path)}],
+        state_file=state_path,
+        history_file=history_path,
+    )
+
+    assert len(records) == 1
+    assert records[0].event_type == "new-listing"
+
+
 def test_notifications_emit_price_drop_after_previous_state(tmp_path, monkeypatch):
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    yesterday = (date.today() - timedelta(days=2)).isoformat()
     today = date.today().isoformat()
     csv_path = tmp_path / "cars.csv"
     analytics_path = tmp_path / "analytics" / "cars-analysis.json"
@@ -578,8 +631,8 @@ def test_notifications_llm_high_risk_does_not_block(tmp_path, monkeypatch):
 
 def test_notifications_llm_approve_does_not_generate_event(tmp_path, monkeypatch):
     """LLM verdict=approve no longer generates a dedicated event (llm-approved removed).
-    Listing first seen yesterday and not price-changed should produce no notification."""
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    Listing first seen 2+ days ago and not price-changed should produce no notification."""
+    yesterday = (date.today() - timedelta(days=2)).isoformat()
     today = date.today().isoformat()
     csv_path = tmp_path / "cars.csv"
     analytics_path = tmp_path / "analytics" / "cars-analysis.json"
@@ -618,9 +671,9 @@ def test_notifications_llm_approve_does_not_generate_event(tmp_path, monkeypatch
 
 
 def test_notifications_no_event_for_old_listing_without_changes(tmp_path, monkeypatch):
-    """Listing first seen yesterday with no price change and no bucket upgrade
+    """Listing first seen 2+ days ago with no price change and no bucket upgrade
     produces no notification (regardless of LLM verdict)."""
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    yesterday = (date.today() - timedelta(days=2)).isoformat()
     today = date.today().isoformat()
     csv_path = tmp_path / "cars.csv"
     analytics_path = tmp_path / "analytics" / "cars-analysis.json"
