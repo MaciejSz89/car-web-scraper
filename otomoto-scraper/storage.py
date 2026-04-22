@@ -131,6 +131,10 @@ def calculate_days_on_site(first_seen_date_str: str, last_seen_date_str: str) ->
 
 
 def upsert_cars_to_csv(cars: list[dict], csv_file: str) -> tuple[int, int]:
+    if not cars:
+        print(f"upsert_cars_to_csv: 0 ofert — pomijam zapis CSV '{csv_file}' (istniejące wpisy bez zmian).")
+        return 0, 0
+
     today = date.today().isoformat()
 
     _baseline_fieldnames = [

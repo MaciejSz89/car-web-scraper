@@ -354,7 +354,7 @@ def get_html_pages(
                         if session_state_file.exists():
                             session_state_file.unlink()
                             logger.info("mobile.de: usunięto cookies zablokowanej sesji")
-                        return []
+                        raise RuntimeError("mobile.de: dostęp zablokowany przez Akamai na stronie głównej")
 
                     if has_challenge:
                         logger.info("mobile.de: Akamai challenge wykryty, czekam na auto-wykonanie... (próba %d/12)", _attempt + 1)

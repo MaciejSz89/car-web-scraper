@@ -89,3 +89,28 @@ def test_upsert_creates_and_updates(tmp_path):
         rows = list(reader)
     assert rows[0]["listing_id"] == "ID1"
     assert int(rows[0]["price_change_count"]) >= 1
+
+
+def test_upsert_empty_cars_does_not_modify_csv(tmp_path):
+    """Gdy lista ofert jest pusta, CSV nie jest modyfikowane (guard przed dezaktywacją)."""
+    csv_file = str(tmp_path / "cars.csv")
+
+    car1 = make_sample_car("ID1", 10000)
+    upsert_cars_to_csv([car1], csv_file)
+
+    # Odczytaj mtime przed wywołaniem z pustą listą
+    mtime_before = os.path.getmtime(csv_file)
+
+    new_count, updated_count = upsert_cars_to_csv([], csv_file)
+    assert new_count == 0
+    assert updated_count == 0
+
+    # Plik nie powinien być zmodyfikowany
+    mtime_after = os.path.getmtime(csv_file)
+    assert mtime_after == mtime_before
+
+    # Istniejące wpisy muszą mieć is_active=1
+    with open(csv_file, newline="", encoding="utf-8-sig") as f:
+        rows = list(csv.DictReader(f, delimiter=";"))
+    assert len(rows) == 1
+    assert str(rows[0]["is_active"]) == "1"
