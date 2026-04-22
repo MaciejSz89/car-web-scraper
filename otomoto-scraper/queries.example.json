@@ -1,42 +1,76 @@
 [
   {
     "name": "Suzuki Vitara",
-    "start_url": "https://www.otomoto.pl/osobowe/suzuki/vitara/od-2016?search%5Bfilter_enum_fuel_type%5D=petrol&search%5Bfilter_float_mileage%3Ato%5D=150000",
+    "otomoto_params": {
+      "make": "suzuki",
+      "model": "vitara",
+      "year_from": 2016,
+      "fuel_type": "petrol",
+      "mileage_to": 150000
+    },
     "csv_file": "suzuki-vitara.csv",
     "max_pages": 10,
     "enabled": true
   },
   {
     "name": "Nissan Qashqai",
-    "start_url": "https://www.otomoto.pl/osobowe/nissan/qashqai/od-2016?search%5Bfilter_enum_fuel_type%5D=petrol&search%5Bfilter_float_mileage%3Ato%5D=150000",
+    "otomoto_params": {
+      "make": "nissan",
+      "model": "qashqai",
+      "year_from": 2016,
+      "fuel_type": "petrol",
+      "mileage_to": 150000
+    },
     "csv_file": "nissan-qashqai.csv",
     "max_pages": 10,
     "enabled": true
   },
   {
     "name": "Mitsubishi ASX",
-    "start_url": "https://www.otomoto.pl/osobowe/mitsubishi/asx/od-2016?search%5Bfilter_enum_fuel_type%5D=petrol&search%5Bfilter_float_mileage%3Ato%5D=150000",
+    "otomoto_params": {
+      "make": "mitsubishi",
+      "model": "asx",
+      "year_from": 2016,
+      "fuel_type": "petrol",
+      "mileage_to": 150000
+    },
     "csv_file": "mitsubishi-asx.csv",
     "max_pages": 10,
     "enabled": true
   },
   {
     "name": "Dacia Duster",
-    "start_url": "https://www.otomoto.pl/osobowe/dacia/duster/od-2016?search%5Bfilter_enum_fuel_type%5D=petrol&search%5Bfilter_float_mileage%3Ato%5D=150000",
+    "otomoto_params": {
+      "make": "dacia",
+      "model": "duster",
+      "year_from": 2016,
+      "fuel_type": "petrol",
+      "mileage_to": 150000
+    },
     "csv_file": "dacia-duster.csv",
     "max_pages": 10,
     "enabled": true
   },
   {
     "name": "Kia Sportage",
-    "start_url": "https://www.otomoto.pl/osobowe/kia/sportage/od-2016?search%5Bfilter_enum_fuel_type%5D=petrol",
+    "otomoto_params": {
+      "make": "kia",
+      "model": "sportage",
+      "year_from": 2016,
+      "fuel_type": "petrol"
+    },
     "csv_file": "kia-sportage.csv",
     "max_pages": 44,
     "enabled": true
   },
   {
     "name": "Volkswagen Golf Sportsvan",
-    "start_url": "https://www.otomoto.pl/osobowe/volkswagen/golf-sportsvan/od-2016?search%5Bfilter_enum_fuel_type%5D=petrol",
+    "otomoto_params": {
+      "make": "volkswagen",
+      "model": "golf-sportsvan",
+      "year_from": 2016,
+      "fuel_type": "petrol"
+    },
     "csv_file": "volkswagen-golf-sportsvan.csv",
     "max_pages": 44,
     "enabled": true
