@@ -96,13 +96,17 @@ def select_from_csv(csv_file: str, top_n: int = 100) -> list[dict]:
         if (row.get("seller_type") or "").lower() == "private":
             reasons.append("private_seller")
 
-        out.append({
+        item: dict = {
             "listing_id": row.get("listing_id"),
             "link": row.get("link"),
             "priority": priority,
             "reason": ",".join(reasons) if reasons else "",
             "selected_at": datetime.utcnow().isoformat(),
-        })
+        }
+        source = str(row.get("source") or "").strip().lower()
+        if source:
+            item["source"] = source
+        out.append(item)
 
     return out
 

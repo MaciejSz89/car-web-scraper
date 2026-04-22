@@ -958,7 +958,7 @@ def process_queue_item(
             "link": link,
         }
 
-    item_source = str(item.get("source") or "").strip().lower()
+    item_source = _get_item_source(item)
     if item_source == "mobile_de" and fetch_html_mobile_de is None:
         logger.info("Enrichment: pomijam %s (source=mobile_de, brak fetchera Camoufox)", listing_id)
         return {
@@ -1059,6 +1059,22 @@ def process_queue_item(
 
 
 DEFAULT_FETCH_DELAY_RANGE_SECONDS: tuple[float, float] = (1.5, 4.0)
+
+
+def _get_item_source(item: dict[str, str]) -> str:
+    """Return the canonical source identifier for a queue item.
+
+    Prefers the explicit ``source`` field; falls back to inferring from
+    ``source_csv`` filename so that older queue entries (written before the
+    source field was propagated) are still handled correctly.
+    """
+    src = str(item.get("source") or "").strip().lower()
+    if src:
+        return src
+    source_csv_name = str(item.get("source_csv") or "").lower()
+    if "mobile-de" in source_csv_name or "mobile_de" in source_csv_name:
+        return "mobile_de"
+    return ""
 
 
 def run(
@@ -1165,7 +1181,7 @@ def run(
     # Create a Camoufox-based fetcher for mobile.de items if any are in the queue
     mobile_de_count = sum(
         1 for item in queue
-        if str(item.get("source") or "").strip().lower() == "mobile_de"
+        if _get_item_source(item) == "mobile_de"
     )
     mobile_de_fetcher: MobileDeHtmlFetcher | None = None
     if mobile_de_count:
