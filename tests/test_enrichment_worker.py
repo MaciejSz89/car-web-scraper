@@ -563,3 +563,154 @@ def test_run_reprocesses_recent_listing_when_bucket_promoted(tmp_path):
     with open(csv_file, "r", newline="", encoding="utf-8-sig") as file_handle:
         refreshed_rows = list(csv.DictReader(file_handle, delimiter=";"))
     assert refreshed_rows[0]["details_based_on_decision_bucket"] == "candidate"
+
+
+# ---------------------------------------------------------------------------
+# mobile.de payload extraction
+# ---------------------------------------------------------------------------
+
+MOBILE_DE_DETAIL_HTML = """
+<html>
+  <head><title>Kia Sportage für 29.480 €</title></head>
+  <body>
+    <script>
+      window.__INITIAL_STATE__ = {
+        "search": {
+          "vip": {
+            "ads": {
+              "440202025": {
+                "data": {
+                  "ad": {
+                    "id": "440202025",
+                    "attributes": [
+                      {"tag": "damageCondition", "value": "Gebrauchtfahrzeug"},
+                      {"tag": "mileage", "value": "14.454\\u00a0km"},
+                      {"tag": "transmission", "value": "Automatik"},
+                      {"tag": "firstRegistration", "value": "12/2024"}
+                    ],
+                    "features": ["ABS", "Klimaanlage", "Scheckheftgepflegt"],
+                    "htmlDescription": "<ul><li>Sehr gepflegtes Fahrzeug</li></ul>",
+                    "contactInfo": {
+                      "name": "Autocenter Test GmbH",
+                      "sellerType": "DEALER",
+                      "country": "DE"
+                    },
+                    "price": {
+                      "grossAmount": 29480,
+                      "grossCurrency": "EUR"
+                    },
+                    "highlights": ["nationale Auslieferung", "bundesweite Zulassung"]
+                  }
+                }
+              }
+            }
+          }
+        }
+      };
+    </script>
+  </body>
+</html>
+"""
+
+MOBILE_DE_DAMAGED_HTML = MOBILE_DE_DETAIL_HTML.replace(
+    '"Gebrauchtfahrzeug"', '"Unfallfahrzeug"'
+)
+
+
+def test_extract_detail_payload_mobile_de_basic():
+    payload = enrichment_worker.extract_detail_payload_mobile_de(
+        MOBILE_DE_DETAIL_HTML, "https://suchen.mobile.de/fahrzeuge/details.html?id=440202025"
+    )
+    assert payload["url"] == "https://suchen.mobile.de/fahrzeuge/details.html?id=440202025"
+    assert payload["page_title"] == "Kia Sportage für 29.480 €"
+    assert payload["description"] == "Sehr gepflegtes Fahrzeug"
+    assert payload["seller"]["name"] == "Autocenter Test GmbH"
+    assert payload["seller"]["type"] == "dealer"
+    assert payload["seller"]["country"] == "DE"
+    assert payload["price"] == {"amount": 29480, "currency": "EUR"}
+    assert "ABS" in payload["equipment"]
+    assert "Klimaanlage" in payload["equipment"]
+    assert payload["ad_features"] == ["nationale Auslieferung", "bundesweite Zulassung"]
+    assert payload["fields_present"]
+
+
+def test_extract_detail_payload_mobile_de_service_record_from_features():
+    payload = enrichment_worker.extract_detail_payload_mobile_de(
+        MOBILE_DE_DETAIL_HTML, "https://example.com"
+    )
+    # "Scheckheftgepflegt" is in features → service_record should be True
+    assert payload["parameters"].get("service_record") is True
+
+
+def test_extract_detail_payload_mobile_de_country_origin():
+    payload = enrichment_worker.extract_detail_payload_mobile_de(
+        MOBILE_DE_DETAIL_HTML, "https://example.com"
+    )
+    assert payload["parameters"]["country_origin"] == "DE"
+
+
+def test_extract_detail_payload_mobile_de_damaged_flag():
+    payload = enrichment_worker.extract_detail_payload_mobile_de(
+        MOBILE_DE_DAMAGED_HTML, "https://example.com"
+    )
+    assert payload["parameters"].get("damaged") is True
+
+
+def test_extract_detail_payload_mobile_de_no_state():
+    # HTML without __INITIAL_STATE__ should return an empty but valid payload
+    empty_html = "<html><head><title>Fehler</title></head><body>Not found</body></html>"
+    payload = enrichment_worker.extract_detail_payload_mobile_de(empty_html, "https://example.com")
+    assert payload["url"] == "https://example.com"
+    assert payload["page_title"] == "Fehler"
+    assert payload["description"] is None
+    assert payload["equipment"] == []
+    assert payload["parameters"] == {}
+
+
+def test_process_queue_item_skips_mobile_de_without_fetcher(tmp_path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    csv_file = data_dir / "cars.csv"
+    _write_storage_csv(csv_file, "MDID1")
+
+    item = {
+        "listing_id": "MDID1",
+        "link": "https://suchen.mobile.de/fahrzeuge/details.html?id=MDID1",
+        "priority": "50",
+        "source": "mobile_de",
+        "source_csv": "cars.csv",
+    }
+    result = enrichment_worker.process_queue_item(
+        item,
+        data_dir=str(data_dir),
+        details_dir=str(data_dir / "details"),
+        # fetch_html_mobile_de not passed → should skip
+    )
+    assert result["status"] == "skipped"
+    assert "mobile_de" in result["reason"].lower()
+
+
+def test_process_queue_item_fetches_mobile_de_with_fetcher(tmp_path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    details_dir = data_dir / "details"
+    csv_file = data_dir / "cars.csv"
+    _write_storage_csv(csv_file, "MDID2")
+
+    item = {
+        "listing_id": "MDID2",
+        "link": "https://suchen.mobile.de/fahrzeuge/details.html?id=MDID2",
+        "priority": "50",
+        "source": "mobile_de",
+        "source_csv": "cars.csv",
+    }
+    result = enrichment_worker.process_queue_item(
+        item,
+        data_dir=str(data_dir),
+        details_dir=str(details_dir),
+        fetch_html_mobile_de=lambda url: MOBILE_DE_DETAIL_HTML,
+    )
+    assert result["status"] == "fetched"
+    assert (details_dir / "MDID2.json").exists()
+    detail = json.loads((details_dir / "MDID2.json").read_text(encoding="utf-8"))
+    assert detail["seller"]["name"] == "Autocenter Test GmbH"

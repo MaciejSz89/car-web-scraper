@@ -6,15 +6,17 @@ import json
 import logging
 import os
 import random
+import re
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from bs4 import BeautifulSoup
 
-from config import DATA_DIR
+from config import DATA_DIR, HEADLESS, SESSION_STATE_FILE_MOBILE_DE
 from enrichment_analysis import analyze_detail_payload
 from utils import clean_text, safe_int
 
@@ -119,6 +121,105 @@ def fetch_listing_html(url: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS)
     with urlopen(request, timeout=timeout_seconds) as response:
         charset = response.headers.get_content_charset() or "utf-8"
         return response.read().decode(charset, errors="replace")
+
+
+class MobileDeHtmlFetcher:
+    """Camoufox-based fetcher for mobile.de detail pages.
+
+    Maintains a single browser session to avoid repeated Akamai challenges.
+    Lazy initialization — the browser starts on the first __call__.
+    """
+
+    _HOME = "https://www.mobile.de/"
+    _CHALLENGE_SEL = "#sec-if-cpt-container, #sec-bc-tile-container"
+
+    def __init__(self, *, headless: bool = True, session_state_file: Path | None = None) -> None:
+        self._headless = headless
+        self._session_state_file = session_state_file
+        self._camoufox: Any = None
+        self._browser: Any = None
+        self._ctx: Any = None
+        self._page: Any = None
+        self._homepage_visited = False
+
+    def _ensure_browser(self) -> None:
+        if self._page is not None:
+            return
+        from camoufox.sync_api import Camoufox  # lazy import — only when actually used
+        self._camoufox = Camoufox(headless=self._headless, humanize=True, os="windows", geoip=True)
+        self._browser = self._camoufox.__enter__()
+        ctx_kwargs: dict[str, Any] = {}
+        if self._session_state_file and self._session_state_file.exists():
+            ctx_kwargs["storage_state"] = str(self._session_state_file)
+        self._ctx = self._browser.new_context(**ctx_kwargs)
+        self._page = self._ctx.new_page()
+
+    def _wait_for_akamai(self, max_attempts: int = 15) -> None:
+        for _ in range(max_attempts):
+            if self._page.locator(self._CHALLENGE_SEL).count() > 0:
+                self._page.wait_for_timeout(3000)
+            else:
+                break
+
+    def _accept_cookies(self) -> None:
+        for sel in (
+            "button.mde-consent-accept-btn",
+            "button:has-text('Einverstanden')",
+            "button:has-text('Alle akzeptieren')",
+        ):
+            try:
+                btn = self._page.locator(sel).first
+                if btn.count() > 0:
+                    btn.click(timeout=3000)
+                    self._page.wait_for_timeout(1500)
+                    return
+            except Exception:
+                pass
+
+    def _visit_homepage(self) -> None:
+        self._page.goto(self._HOME, wait_until="domcontentloaded", timeout=60_000)
+        self._page.wait_for_timeout(2000)
+        self._wait_for_akamai()
+        self._accept_cookies()
+        self._page.wait_for_timeout(1500)
+        logger.info("MobileDeHtmlFetcher: homepage załadowana: %s", self._page.title())
+        self._save_session()
+
+    def _save_session(self) -> None:
+        if self._session_state_file and self._ctx is not None:
+            try:
+                self._ctx.storage_state(path=str(self._session_state_file))
+            except Exception:
+                pass
+
+    def __call__(self, url: str) -> str:
+        self._ensure_browser()
+        if not self._homepage_visited:
+            self._visit_homepage()
+            self._homepage_visited = True
+        self._page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+        self._wait_for_akamai()
+        self._page.wait_for_timeout(2000)
+        html = self._page.content()
+        self._save_session()
+        return html
+
+    def close(self) -> None:
+        if self._camoufox is not None:
+            try:
+                self._camoufox.__exit__(None, None, None)
+            except Exception:
+                pass
+            self._camoufox = None
+            self._browser = None
+            self._ctx = None
+            self._page = None
+
+    def __enter__(self) -> "MobileDeHtmlFetcher":
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        self.close()
 
 
 def _extract_json_ld(soup: BeautifulSoup) -> list[Any]:
@@ -454,6 +555,125 @@ def extract_detail_payload(html: str, url: str) -> dict[str, Any]:
     return payload
 
 
+def extract_detail_payload_mobile_de(html: str, url: str) -> dict[str, Any]:
+    """Parse a mobile.de VIP (detail) page HTML and return a payload matching
+    the schema used by build_csv_detail_summary / analyze_detail_payload.
+
+    Data comes from ``window.__INITIAL_STATE__`` embedded in the page:
+      search.vip.ads.<id>.data.ad → attributes (list), features, htmlDescription,
+      contactInfo, price, highlights.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    page_title = soup.title.get_text(" ", strip=True) if soup.title else None
+
+    # Extract window.__INITIAL_STATE__ JSON blob
+    initial_state: dict[str, Any] = {}
+    for script in soup.find_all("script"):
+        raw = script.string or ""
+        if "window.__INITIAL_STATE__" not in raw:
+            continue
+        m = re.search(r"window\.__INITIAL_STATE__\s*=\s*(\{.+\})\s*;?\s*$", raw, re.DOTALL)
+        if m:
+            try:
+                initial_state = json.loads(m.group(1))
+            except (json.JSONDecodeError, ValueError):
+                pass
+        break
+
+    # Navigate to the ad object: search.vip.ads.<id>.data.ad
+    ad: dict[str, Any] = {}
+    vip_ads = (initial_state.get("search") or {}).get("vip", {}).get("ads", {})
+    for wrapper in vip_ads.values():
+        candidate = (wrapper.get("data") or {}).get("ad")
+        if isinstance(candidate, dict):
+            ad = candidate
+            break
+
+    # Attributes list → flat dict keyed by tag
+    attr_map: dict[str, Any] = {}
+    for attr in (ad.get("attributes") or []):
+        if isinstance(attr, dict) and attr.get("tag"):
+            attr_map[attr["tag"]] = attr.get("value")
+
+    # Equipment / features (list of plain strings)
+    features: list[str] = [str(f) for f in (ad.get("features") or []) if f]
+
+    # Description: mobile.de provides htmlDescription
+    description: str | None = None
+    html_desc = ad.get("htmlDescription")
+    if html_desc:
+        description = clean_text(
+            BeautifulSoup(html_desc, "html.parser").get_text(" ", strip=True)
+        )
+
+    # Seller
+    contact: dict[str, Any] = ad.get("contactInfo") or {}
+    seller: dict[str, Any] = {}
+    if contact.get("name"):
+        seller["name"] = contact["name"]
+    if contact.get("sellerType"):
+        seller["type"] = contact["sellerType"].lower()
+    if contact.get("country"):
+        seller["country"] = contact["country"]
+
+    # Price
+    price_raw = ad.get("price") or {}
+    price: dict[str, Any] = {}
+    if isinstance(price_raw, dict):
+        if price_raw.get("grossAmount") is not None:
+            price["amount"] = price_raw["grossAmount"]
+        if price_raw.get("grossCurrency"):
+            price["currency"] = price_raw["grossCurrency"]
+
+    # Parameters — map mobile.de attributes to normalized keys understood by
+    # build_csv_detail_summary / analyze_detail_payload
+    parameters: dict[str, Any] = {}
+
+    # Accident / damage: damageCondition = "Unfallfahrzeug"
+    damage_cond = str(attr_map.get("damageCondition") or "").lower()
+    if "unfallfahrzeug" in damage_cond:
+        parameters["damaged"] = True
+
+    # Country of origin: seller's country (always "DE" for German listings)
+    seller_country = str(contact.get("country") or "").upper()
+    if seller_country:
+        parameters["country_origin"] = seller_country
+
+    # Service record: check features list and description for German keywords
+    service_keywords = {"scheckheft", "serviceheft", "scheckheftgepflegt"}
+    if {f.lower() for f in features} & service_keywords:
+        parameters["service_record"] = True
+    elif description and any(kw in description.lower() for kw in service_keywords):
+        parameters["service_record"] = True
+
+    # Highlights → ad_features (e.g. "nationale Auslieferung")
+    highlights: list[str] = [str(h) for h in (ad.get("highlights") or []) if h]
+
+    json_ld_payloads = _extract_json_ld(soup)
+
+    payload: dict[str, Any] = {
+        "url": url,
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "page_title": page_title,
+        "meta_description": None,
+        "json_ld_count": len(json_ld_payloads),
+        "structured_data": json_ld_payloads,
+        "description": description,
+        "seller": seller,
+        "price": price or None,
+        "equipment": features,
+        "parameters": parameters,
+        "ad_features": highlights,
+        "main_features": [],
+        "source": {
+            "initial_state_present": bool(initial_state),
+            "ad_keys": sorted(ad.keys()) if ad else [],
+        },
+    }
+    payload["fields_present"] = _collect_fields_present(payload)
+    return payload
+
+
 def write_detail_json(details_dir: str, listing_id: str, payload: dict[str, Any]) -> str:
     os.makedirs(details_dir, exist_ok=True)
     output_path = os.path.join(details_dir, f"{listing_id}.json")
@@ -721,6 +941,7 @@ def process_queue_item(
     details_dir: str,
     analytics_cache: dict[str, dict[str, dict[str, Any]]] | None = None,
     fetch_html: Callable[[str], str] = fetch_listing_html,
+    fetch_html_mobile_de: Callable[[str], str] | None = None,
 ) -> dict[str, Any]:
     listing_id = str(item.get("listing_id") or "").strip()
     link = str(item.get("link") or "").strip()
@@ -738,12 +959,12 @@ def process_queue_item(
         }
 
     item_source = str(item.get("source") or "").strip().lower()
-    if item_source == "mobile_de":
-        logger.info("Enrichment: pomijam %s (source=mobile_de)", listing_id)
+    if item_source == "mobile_de" and fetch_html_mobile_de is None:
+        logger.info("Enrichment: pomijam %s (source=mobile_de, brak fetchera Camoufox)", listing_id)
         return {
             "listing_id": listing_id,
             "status": "skipped",
-            "reason": "source=mobile_de",
+            "reason": "source=mobile_de: fetcher not configured",
             "source_csv": source_csv,
             "link": link,
         }
@@ -763,8 +984,12 @@ def process_queue_item(
     current_decision_bucket = get_current_decision_bucket(data_dir, source_csv, listing_id, cache)
 
     try:
-        html = fetch_html(link)
-        payload = extract_detail_payload(html, link)
+        if item_source == "mobile_de":
+            html = fetch_html_mobile_de(link)  # type: ignore[misc]
+            payload = extract_detail_payload_mobile_de(html, link)
+        else:
+            html = fetch_html(link)
+            payload = extract_detail_payload(html, link)
         output_path = write_detail_json(details_dir, listing_id, payload)
         detail_summary = build_csv_detail_summary(payload, current_row)
         update_listing_enrichment_status(
@@ -807,6 +1032,27 @@ def process_queue_item(
             "status": new_status,
             "csv_file": csv_file,
             "reason": str(exc),
+            "source_csv": source_csv,
+            "link": link,
+        }
+    except Exception as exc:
+        # Catch non-standard exceptions (e.g. Playwright errors from mobile.de fetcher)
+        logger.exception("Enrichment: nieoczekiwany błąd dla %s (%s)", listing_id, item_source)
+        update_listing_enrichment_status(
+            csv_file,
+            listing_id,
+            status="failed",
+            fetched_at=processed_at,
+            priority=priority,
+            based_on_price_pln=current_row.get("price_pln") or "",
+            based_on_last_seen_date=current_row.get("last_seen_date") or "",
+            based_on_decision_bucket=current_decision_bucket,
+        )
+        return {
+            "listing_id": listing_id,
+            "status": "failed",
+            "csv_file": csv_file,
+            "reason": f"{type(exc).__name__}: {exc}",
             "source_csv": source_csv,
             "link": link,
         }
@@ -916,26 +1162,45 @@ def run(
     total = len(queue)
     logger.info("Enrichment: %d pozycji do przetworzenia.", total)
 
+    # Create a Camoufox-based fetcher for mobile.de items if any are in the queue
+    mobile_de_count = sum(
+        1 for item in queue
+        if str(item.get("source") or "").strip().lower() == "mobile_de"
+    )
+    mobile_de_fetcher: MobileDeHtmlFetcher | None = None
+    if mobile_de_count:
+        logger.info("Enrichment: %d ofert mobile.de — uruchamiam MobileDeHtmlFetcher.", mobile_de_count)
+        mobile_de_fetcher = MobileDeHtmlFetcher(
+            headless=HEADLESS,
+            session_state_file=SESSION_STATE_FILE_MOBILE_DE,
+        )
+
     results: list[dict[str, Any]] = []
-    for index, item in enumerate(queue, start=1):
-        result = process_queue_item(
-            item,
-            data_dir=resolved_data_dir,
-            details_dir=resolved_details_dir,
-            analytics_cache=analytics_cache,
-            fetch_html=fetch_html,
-        )
-        results.append(result)
-        logger.info(
-            "Enrichment [%d/%d] listing_id=%s status=%s",
-            index,
-            total,
-            result.get("listing_id") or "",
-            result.get("status") or "",
-        )
-        if result.get("status") in ("fetched", "failed") and index < total:
-            delay = random.uniform(*fetch_delay_range_seconds)
-            time.sleep(delay)
+    try:
+        for index, item in enumerate(queue, start=1):
+            result = process_queue_item(
+                item,
+                data_dir=resolved_data_dir,
+                details_dir=resolved_details_dir,
+                analytics_cache=analytics_cache,
+                fetch_html=fetch_html,
+                fetch_html_mobile_de=mobile_de_fetcher,
+            )
+            results.append(result)
+            logger.info(
+                "Enrichment [%d/%d] listing_id=%s status=%s",
+                index,
+                total,
+                result.get("listing_id") or "",
+                result.get("status") or "",
+            )
+            if result.get("status") in ("fetched", "failed") and index < total:
+                delay = random.uniform(*fetch_delay_range_seconds)
+                time.sleep(delay)
+    finally:
+        if mobile_de_fetcher is not None:
+            mobile_de_fetcher.close()
+            logger.info("Enrichment: MobileDeHtmlFetcher zamknięty.")
 
     fetched = sum(result.get("status") == "fetched" for result in results)
     failed = sum(result.get("status") == "failed" for result in results)
