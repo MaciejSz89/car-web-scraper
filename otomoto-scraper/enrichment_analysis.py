@@ -220,7 +220,7 @@ def _score_parameters(parameters: Any) -> tuple[int, list[str], list[str]]:
     damaged_raw = parameters.get("damaged")
     if damaged_raw not in (None, "", [], {}):
         normalized = str(damaged_raw).strip().lower()
-        if normalized not in {"0", "false", "no", "nie"}:
+        if normalized not in {"0", "false", "no", "nie", "damaged"}:
             score -= 25
             _append_unique(reasons, "strukturalna flaga uszkodzenia z detail page")
             _append_unique(flags, "damage_structural")
@@ -228,7 +228,7 @@ def _score_parameters(parameters: Any) -> tuple[int, list[str], list[str]]:
     no_accident_raw = parameters.get("no_accident")
     if no_accident_raw not in (None, "", [], {}):
         normalized = str(no_accident_raw).strip().lower()
-        if normalized not in {"0", "false", "no", "nie"}:
+        if normalized not in {"0", "false", "no", "nie", "no_accident"}:
             score += 8
             _append_unique(reasons, "strukturalna flaga bezwypadkowosci z detail page")
             _append_unique(flags, "accident_free_structural")

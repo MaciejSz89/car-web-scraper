@@ -300,6 +300,7 @@ def build_prompt(
     payload_damaged_truthy = (
         payload_damaged_raw not in (None, "", [], {})
         and str(payload_damaged_raw).strip().lower() not in {"0", "false", "no", "nie"}
+        and str(payload_damaged_raw).strip().lower() != "damaged"
     )
     damage_status = "brak sygnałów uszkodzenia"
     if is_damaged_raw in ("1", "true") or details_damaged_flag.lower() in ("true", "1", "yes") or payload_damaged_truthy:
@@ -313,6 +314,7 @@ def build_prompt(
     payload_imported_truthy = (
         payload_imported_raw not in (None, "", [], {})
         and str(payload_imported_raw).strip().lower() not in {"0", "false", "no", "nie"}
+        and str(payload_imported_raw).strip().lower() != "is_imported_car"
     )
     if not country_origin_val:
         payload_country = str(payload_params.get("country_origin") or "").strip()

@@ -6,7 +6,7 @@ import time
 
 from analytics import save_query_analysis
 from notifications import run as run_notifications_pipeline, retry_failed_notifications
-from enrichment_worker import run as run_enrichment_worker
+from enrichment_worker import run as run_enrichment_worker, reprocess_details_flags
 from llm_worker import run as run_llm_worker
 from preferences import load_preferences
 from scraper import get_html_pages
@@ -110,8 +110,8 @@ def _run_once(args: argparse.Namespace, chosen_headless: bool) -> None:
         logging.info("DRY RUN: nie będą pobierane strony, tylko pokazany plan kwerend")
         for query in QUERIES:
             logging.info("Kwerenda: %s -> %s (max_pages=%s)", query.get("name"), query.get("start_url"), query.get("max_pages"))
-    elif args.skip_scraping:
-        logging.info("--skip-scraping: pomijam scraping i enrichment.")
+    elif args.skip_scraping or args.reprocess_details:
+        logging.info("--skip-scraping / --reprocess-details: pomijam scraping i enrichment.")
     else:
         for query in QUERIES:
             try:
@@ -188,6 +188,21 @@ def _run_once(args: argparse.Namespace, chosen_headless: bool) -> None:
         except Exception:
             logging.exception("Retry powiadomień nie powiódł się")
 
+    if args.reprocess_details:
+        try:
+            counts = reprocess_details_flags()
+            logging.info(
+                "reprocess-details: zaktualizowano %d wierszy, pominięto %d, brak JSON %d, błędy %d.",
+                counts["updated"], counts["skipped"], counts["missing_json"], counts["errors"],
+            )
+            print(
+                f"reprocess-details: updated={counts['updated']}, skipped={counts['skipped']}, "
+                f"missing_json={counts['missing_json']}, errors={counts['errors']}"
+            )
+            rerun_analytics_for_all_queries()
+        except Exception:
+            logging.exception("reprocess-details nie powiodło się")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Otomoto scraper")
@@ -259,6 +274,11 @@ def main() -> None:
         "--retry-failed-notifications",
         action="store_true",
         help="Ponowić wysyłkę powiadomień oznaczonych jako failed w notification_history.csv.",
+    )
+    parser.add_argument(
+        "--reprocess-details",
+        action="store_true",
+        help="Przetworz ponownie istniejące pliki JSON z dysku i popraw flagi damaged/imported w CSV (bez pobierania).",
     )
     parser.add_argument(
         "--loop",

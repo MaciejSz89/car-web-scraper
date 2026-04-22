@@ -59,7 +59,7 @@ def test_build_prompt_damage_from_sidecar_when_csv_stale():
     detail_payload = {
         "description": "Opis.",
         "equipment": [],
-        "parameters": {"damaged": "damaged"},  # otomoto checkbox pattern
+        "parameters": {"damaged": "1"},  # normalized otomoto value: 1=Tak (damaged)
     }
     prompt = llm_worker.build_prompt(listing_row, detail_payload, _base_analytics())
     assert "UWAGA" in prompt
@@ -72,7 +72,7 @@ def test_build_prompt_import_from_sidecar_when_csv_stale():
     detail_payload = {
         "description": "Opis.",
         "equipment": [],
-        "parameters": {"is_imported_car": "is_imported_car"},  # otomoto checkbox pattern
+        "parameters": {"is_imported_car": "1"},  # normalized otomoto value: 1=Tak (imported)
     }
     prompt = llm_worker.build_prompt(listing_row, detail_payload, _base_analytics())
     assert "UWAGA" in prompt

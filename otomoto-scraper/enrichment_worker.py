@@ -204,6 +204,21 @@ def _normalize_parameters(parameters: Any) -> dict[str, Any]:
     normalized: dict[str, Any] = {}
     for key, value in parameters.items():
         if isinstance(value, dict):
+            # Otomoto format: {"label": "<key>", "values": [{"value": "...", "label": "..."}, ...]}
+            values_list = value.get("values")
+            if isinstance(values_list, list) and values_list:
+                extracted = [
+                    item.get("value") if isinstance(item, dict) else item
+                    for item in values_list
+                    if (item.get("value") if isinstance(item, dict) else item) not in (None, "")
+                ]
+                if len(extracted) == 1:
+                    normalized[key] = extracted[0]
+                elif len(extracted) > 1:
+                    normalized[key] = extracted
+                continue
+
+            # Legacy format: {"value": "...", "label": "..."}
             candidate = value.get("value")
             if candidate is None:
                 candidate = value.get("label")
@@ -333,6 +348,8 @@ def _parameter_flag(parameters: dict[str, Any], key: str) -> bool | None:
         return None
 
     normalized = str(raw_value).strip().lower()
+    if normalized == key.lower():  # key==value means unresolved (legacy/broken normalization)
+        return None
     if normalized in {"0", "false", "no", "nie"}:
         return False
     return True
@@ -940,6 +957,96 @@ def run(
     flush_completed_from_queue(resolved_queue_file, ids_to_flush)
 
     return results
+
+
+# ── Migration: reprocess existing sidecar JSONs ───────────────────────────────
+
+
+def reprocess_details_flags(
+    data_dir: str | None = None,
+    details_dir: str | None = None,
+) -> dict[str, int]:
+    """Re-read existing sidecar JSON files and rewrite CSV detail flags using fixed normalization.
+
+    This migration fixes rows that were enriched before the parametersDict normalization bug
+    was corrected (all boolean flags like damaged/imported were always set to True).
+
+    Returns a dict with counts: updated, skipped, missing_json, errors.
+    """
+    resolved_data_dir = data_dir or str(DATA_DIR)
+    resolved_details_dir = details_dir or os.path.join(resolved_data_dir, "details")
+
+    counts: dict[str, int] = {"updated": 0, "skipped": 0, "missing_json": 0, "errors": 0}
+
+    _EXCLUDED_CSVS = {"enrichment_queue.csv", "notification_history.csv", "notification_state.csv"}
+
+    for file_name in os.listdir(resolved_data_dir):
+        if not file_name.endswith(".csv") or file_name in _EXCLUDED_CSVS:
+            continue
+
+        csv_file = os.path.join(resolved_data_dir, file_name)
+        try:
+            fieldnames, rows = _read_csv_rows(csv_file)
+        except Exception:
+            logger.exception("reprocess_details_flags: nie można odczytać %s", csv_file)
+            counts["errors"] += 1
+            continue
+
+        changed = False
+        for row in rows:
+            if (row.get("details_status") or "").strip().lower() != "fetched":
+                counts["skipped"] += 1
+                continue
+
+            listing_id = str(row.get("listing_id") or "").strip()
+            if not listing_id:
+                counts["skipped"] += 1
+                continue
+
+            json_path = os.path.join(resolved_details_dir, f"{listing_id}.json")
+            if not os.path.exists(json_path):
+                counts["missing_json"] += 1
+                continue
+
+            try:
+                with open(json_path, "r", encoding="utf-8") as fh:
+                    payload = json.load(fh)
+            except (OSError, json.JSONDecodeError):
+                logger.warning("reprocess_details_flags: nie można odczytać %s", json_path)
+                counts["errors"] += 1
+                continue
+
+            try:
+                summary = build_csv_detail_summary(payload, row)
+            except Exception:
+                logger.exception("reprocess_details_flags: build_csv_detail_summary failed dla %s", listing_id)
+                counts["errors"] += 1
+                continue
+
+            row["details_damaged_flag"] = summary.get("damaged_flag", "")
+            row["details_imported_flag"] = summary.get("imported_flag", "")
+            row["details_no_accident_flag"] = summary.get("no_accident_flag", "")
+            row["details_service_record_flag"] = summary.get("service_record_flag", "")
+            row["details_enrichment_score"] = summary.get("enrichment_score", "")
+            row["details_enrichment_confidence"] = summary.get("enrichment_confidence", "")
+            row["details_enrichment_flags"] = summary.get("enrichment_flags", "")
+            row["details_description_excerpt"] = summary.get("description_excerpt", row.get("details_description_excerpt", ""))
+            row["details_vin"] = summary.get("vin", row.get("details_vin", ""))
+            row["details_country_origin"] = summary.get("country_origin", row.get("details_country_origin", ""))
+            row["details_seller_name"] = summary.get("seller_name", row.get("details_seller_name", ""))
+
+            changed = True
+            counts["updated"] += 1
+
+        if changed:
+            try:
+                _write_csv_rows(csv_file, fieldnames, rows)
+                logger.info("reprocess_details_flags: zapisano %s", file_name)
+            except Exception:
+                logger.exception("reprocess_details_flags: nie można zapisać %s", csv_file)
+                counts["errors"] += 1
+
+    return counts
 
 
 def main() -> None:

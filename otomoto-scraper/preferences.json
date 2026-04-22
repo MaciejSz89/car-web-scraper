@@ -1,7 +1,7 @@
 {
   "profile_name": "default",
   "llm": {
-    "max_notification_llm_calls": 5
+    "max_notification_llm_calls": 10
   },
   "enrichment": {
     "allowed_buckets": ["candidate", "high-priority"]
