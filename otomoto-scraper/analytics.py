@@ -9,7 +9,7 @@ from typing import Any
 
 from config import ANALYTICS_DIR
 from enrichment_analysis import EnrichmentAnalysisResult, analyze_listing_details
-from preferences import evaluate_preferences, load_preferences
+from preferences import evaluate_preferences, get_query_preferences, load_preferences
 from utils import safe_int
 
 
@@ -143,24 +143,28 @@ def _percentile_25(prices: list[int]) -> int:
     return sorted_prices[index]
 
 
-def _calculate_market_score(target: dict[str, Any], group: list[dict[str, Any]], fallback_level: int) -> tuple[int, list[str]]:
+def _calculate_market_score(target: dict[str, Any], group: list[dict[str, Any]], fallback_level: int, import_cost_pln: int = 0) -> tuple[int, list[str]]:
     reasons: list[str] = []
     price_pln = target.get("price_pln")
     if price_pln is None:
         return 0, ["brak ceny oferty"]
 
+    effective_price = price_pln + import_cost_pln
+    if import_cost_pln:
+        reasons.append(f"korekta o koszty importu: +{import_cost_pln} PLN (efektywna cena: {effective_price} PLN)")
+
     prices = [candidate["price_pln"] for candidate in group if candidate.get("price_pln") is not None]
     if len(prices) < MIN_LOW_CONFIDENCE_GROUP_SIZE:
-        return 20, ["zbyt mala grupa porownawcza do wyceny rynku"]
+        return 20, reasons + ["zbyt mala grupa porownawcza do wyceny rynku"]
 
     median_price = round(median(prices))
     p25_price = _percentile_25(prices)
-    price_advantage_ratio = (median_price - price_pln) / median_price if median_price else 0.0
+    price_advantage_ratio = (median_price - effective_price) / median_price if median_price else 0.0
 
     score = 50 + int(price_advantage_ratio * 250)
-    reasons.append(f"pozycja ceny vs mediana segmentu: {price_pln} vs {median_price}")
+    reasons.append(f"pozycja ceny vs mediana segmentu: {effective_price} vs {median_price}")
 
-    if price_pln <= p25_price:
+    if effective_price <= p25_price:
         score += 10
         reasons.append(f"cena w dolnym kwartylu segmentu ({p25_price})")
 
@@ -291,11 +295,16 @@ def _apply_enrichment_adjustment(
 def analyze_query_csv(query_name: str, csv_file: str) -> list[AnalyticsResult]:
     cars = _read_active_cars(csv_file)
     preferences = load_preferences()
+    effective_prefs = get_query_preferences(preferences, query_name)
+    source_adjustments = effective_prefs.get("source_adjustments", {})
     results: list[AnalyticsResult] = []
 
     for car in cars:
+        source = str(car.get("source") or "").strip().lower()
+        source_config = source_adjustments.get(source, {})
+        import_cost_pln = safe_int(source_config.get("import_cost_pln")) or 0
         comparison_group, fallback_level = _build_comparison_group(car, cars)
-        market_score, market_reasons = _calculate_market_score(car, comparison_group, fallback_level)
+        market_score, market_reasons = _calculate_market_score(car, comparison_group, fallback_level, import_cost_pln=import_cost_pln)
         confidence_score, confidence_reasons = _calculate_confidence_score(car, len(comparison_group), fallback_level)
         enrichment_result = analyze_listing_details(str(car["listing_id"]), listing_row=car)
 

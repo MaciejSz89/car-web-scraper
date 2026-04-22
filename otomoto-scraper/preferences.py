@@ -52,6 +52,12 @@ def evaluate_preferences(car: JsonDict, query_name: str, preferences: JsonDict) 
     hard_filters = effective_preferences.get("hard_filters", {})
     soft_preferences = effective_preferences.get("soft_preferences", {})
 
+    # Konfiguracja specyficzna dla źródła danych (np. mobile_de)
+    source_adjustments = effective_preferences.get("source_adjustments", {})
+    source = str(car.get("source") or "").strip().lower()
+    source_config: JsonDict = source_adjustments.get(source, {})
+    import_cost_pln = safe_int(source_config.get("import_cost_pln")) or 0
+
     reasons: list[str] = []
     hard_filter_passed = True
 
@@ -69,8 +75,11 @@ def evaluate_preferences(car: JsonDict, query_name: str, preferences: JsonDict) 
         reasons.append(reason)
 
     max_price_pln = safe_int(hard_filters.get("max_price_pln"))
-    if max_price_pln is not None and price_pln is not None and price_pln > max_price_pln:
-        fail_filter(f"cena powyzej limitu preferencji ({price_pln} > {max_price_pln})")
+    if max_price_pln is not None and price_pln is not None:
+        effective_price_pln = price_pln + import_cost_pln
+        if effective_price_pln > max_price_pln:
+            suffix = f" + {import_cost_pln} import" if import_cost_pln else ""
+            fail_filter(f"efektywna cena powyzej limitu preferencji ({price_pln}{suffix} = {effective_price_pln} > {max_price_pln})")
 
     max_mileage_km = safe_int(hard_filters.get("max_mileage_km"))
     if max_mileage_km is not None and mileage_km is not None and mileage_km > max_mileage_km:
@@ -159,6 +168,12 @@ def evaluate_preferences(car: JsonDict, query_name: str, preferences: JsonDict) 
                 score += range_score
                 reasons.append(f"preferowana pojemnosc {range_min}-{range_max} cm3 ({range_score:+d})")
                 break
+
+    reliability_bonus = safe_int(source_config.get("reliability_score_bonus")) or 0
+    if reliability_bonus:
+        score += reliability_bonus
+        label = f"+{reliability_bonus}" if reliability_bonus > 0 else str(reliability_bonus)
+        reasons.append(f"korekta wiarygodnosci zrodla {source}: {label}")
 
     return {
         "hard_filter_passed": True,

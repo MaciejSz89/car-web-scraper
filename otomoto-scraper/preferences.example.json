@@ -75,7 +75,13 @@
         "chat_id_env": "OTOMOTO_TELEGRAM_CHAT_ID",
         "disable_web_page_preview": true
       }
-    ]
+    ],
+    "source_adjustments": {
+      "mobile_de": {
+        "import_cost_pln": 5000,
+        "reliability_score_bonus": 5
+      }
+    }
   },
   "queries": {
     "Kia Sportage": {
