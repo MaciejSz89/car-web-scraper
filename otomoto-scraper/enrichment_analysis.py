@@ -201,7 +201,7 @@ def _score_consistency(payload: dict[str, Any], listing_row: dict[str, Any] | No
         imported_raw = parameters.get("is_imported_car")
         if imported_raw not in (None, "", [], {}):
             normalized_imp = str(imported_raw).strip().lower()
-            if normalized_imp not in {"0", "false", "no", "nie"}:
+            if normalized_imp not in {"0", "false", "no", "nie", "is_imported_car"}:  # "is_imported_car" guards legacy key==value
                 score -= 2
                 _append_unique(reasons, "detail page wskazuje na import pojazdu")
                 _append_unique(flags, "import_flag_present")
