@@ -23,3 +23,6 @@ __pycache__/
 # Editor configs
 .vscode/
 .idea/
+
+# Scratch / diagnostic scripts (not for VCS)
+otomoto-scraper/_scratch/
