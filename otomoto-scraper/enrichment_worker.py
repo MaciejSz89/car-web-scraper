@@ -737,6 +737,17 @@ def process_queue_item(
             "link": link,
         }
 
+    item_source = str(item.get("source") or "").strip().lower()
+    if item_source == "mobile_de":
+        logger.info("Enrichment: pomijam %s (source=mobile_de)", listing_id)
+        return {
+            "listing_id": listing_id,
+            "status": "skipped",
+            "reason": "source=mobile_de",
+            "source_csv": source_csv,
+            "link": link,
+        }
+
     csv_file = find_listing_csv(data_dir, listing_id, source_csv)
     if not csv_file:
         return {

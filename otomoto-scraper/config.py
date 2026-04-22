@@ -18,6 +18,7 @@ class OtomotoParams(TypedDict, total=False):
 
 class QueryConfig(TypedDict):
 	name: str
+	source: str  # "otomoto" | "mobile_de"
 	start_url: str
 	csv_file: str
 	max_pages: int
@@ -35,6 +36,7 @@ QUERIES_EXAMPLE_FILE = SCRAPER_DIR / "queries.example.json"
 PREFERENCES_FILE = SCRAPER_DIR / "preferences.json"
 PREFERENCES_EXAMPLE_FILE = SCRAPER_DIR / "preferences.example.json"
 SESSION_STATE_FILE = DATA_DIR / ".session-state.json"
+SESSION_STATE_FILE_MOBILE_DE = DATA_DIR / ".session-state-mobile_de.json"
 
 HEADLESS = False
 WAIT_MS = 3000
@@ -143,9 +145,17 @@ def load_queries() -> list[QueryConfig]:
 				f"Kwerenda '{name}' w {queries_source} ma nieprawidłowe 'max_pages': {max_pages!r}."
 			) from exc
 
+		source = str(raw_query.get("source", "otomoto")).strip().lower()
+		if source not in ("otomoto", "mobile_de"):
+			raise ValueError(
+				f"Kwerenda '{name}' w {queries_source} ma nieprawidłowe 'source': {source!r}. "
+				"Dozwolone: 'otomoto', 'mobile_de'."
+			)
+
 		if enabled:
 			normalized_queries.append({
 				"name": name,
+				"source": source,
 				"start_url": start_url,
 				"csv_file": resolve_csv_file(csv_file),
 				"max_pages": normalized_max_pages,

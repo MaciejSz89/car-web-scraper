@@ -11,6 +11,8 @@ from llm_worker import run as run_llm_worker
 from preferences import load_preferences
 from scraper import get_html_pages
 from parser import get_cars_from_content
+from scrapers.mobile_de import get_html_pages as get_html_pages_mobile_de
+from parsers.mobile_de import get_cars_from_content as get_cars_from_content_mobile_de
 from storage import upsert_cars_to_csv
 from config import (
     QUERIES,
@@ -24,6 +26,7 @@ from config import (
     SCROLL_STEP_RANGE_PX,
     RETRY_BACKOFF_DELAY_RANGE_MS,
     SESSION_STATE_FILE,
+    SESSION_STATE_FILE_MOBILE_DE,
 )
 
 
@@ -42,10 +45,20 @@ def process_query(query: dict[str, str | int], headless: bool = HEADLESS) -> Non
     start_url = str(query["start_url"])
     csv_file = str(query["csv_file"])
     max_pages = int(query["max_pages"])
+    source = str(query.get("source", "otomoto"))
 
-    print(f"\n=== Kwerenda: {query_name} ===")
+    print(f"\n=== Kwerenda: {query_name} ===\n(source={source})")
 
-    html_pages = get_html_pages(
+    if source == "mobile_de":
+        _get_pages = get_html_pages_mobile_de
+        _parse_cars = get_cars_from_content_mobile_de
+        _session_file = SESSION_STATE_FILE_MOBILE_DE
+    else:
+        _get_pages = get_html_pages
+        _parse_cars = get_cars_from_content
+        _session_file = SESSION_STATE_FILE
+
+    html_pages = _get_pages(
         start_url=start_url,
         headless=headless,
         wait_ms=WAIT_MS,
@@ -57,7 +70,7 @@ def process_query(query: dict[str, str | int], headless: bool = HEADLESS) -> Non
         retry_backoff_delay_range_ms=RETRY_BACKOFF_DELAY_RANGE_MS,
         navigation_timeout_ms=NAVIGATION_TIMEOUT_MS,
         max_navigation_retries=MAX_NAVIGATION_RETRIES,
-        session_state_file=SESSION_STATE_FILE,
+        session_state_file=_session_file,
     )
 
     cars_by_id: dict[str, dict] = {}
@@ -65,7 +78,7 @@ def process_query(query: dict[str, str | int], headless: bool = HEADLESS) -> Non
 
     for page_number, html in enumerate(html_pages, start=1):
         print(f"\nParsuję stronę {page_number}/{len(html_pages)}")
-        page_cars = get_cars_from_content(html)
+        page_cars = _parse_cars(html)
 
         if page_cars:
             pages_with_results += 1
