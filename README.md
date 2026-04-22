@@ -88,7 +88,7 @@ uv run .\analyze.py
 
 ## Konfiguracja
 
-- **`otomoto-scraper/queries.json`** — lista kwerend (nazwa, URL, plik CSV, max stron)
+- **`otomoto-scraper/queries.json`** — lista kwerend (nazwa, `otomoto_params` z polami `make`/`model`/`year_from`/`fuel_type`/`mileage_to`, plik CSV, max stron); config loader buduje `start_url` z parametrów w czasie ładowania
 - **`otomoto-scraper/preferences.json`** — preferencje użytkownika: twarde filtry (przebieg, rok, paliwo) i miękkie korekty scoringu, ustawienia powiadomień (kanał, próg score, Telegram token/chat)
 
 Wzorce plików konfiguracyjnych: `queries.example.json`, `preferences.example.json`.
