@@ -99,6 +99,12 @@ Wzorce plików konfiguracyjnych: `queries.example.json`, `preferences.example.js
 uv run pytest tests/
 ```
 
-## Wymagania funkcjonalne
+## Dokumentacja
 
-Szczegółowa specyfikacja wymagań, reguł scoringu, segmentacji i enrichmentu: [`REQUIREMENTS.md`](REQUIREMENTS.md).
+| Plik                                           | Zawartość                                                          |
+| ---------------------------------------------- | ------------------------------------------------------------------ |
+| [`REQUIREMENTS.md`](REQUIREMENTS.md)           | Indeks wymagań ze statusami i linkami                              |
+| [`docs/requirements.md`](docs/requirements.md) | Pełna tabela wymagań (REQ-001 … REQ-066)                           |
+| [`docs/architecture.md`](docs/architecture.md) | Reguły projektowe, kontrakty danych, reguły scoringu i enrichmentu |
+| [`docs/usage.md`](docs/usage.md)               | Pełna instrukcja użytkowania i opis parametrów CLI                 |
+| [`docs/changelog.md`](docs/changelog.md)       | Chronologiczny dziennik zmian                                      |
