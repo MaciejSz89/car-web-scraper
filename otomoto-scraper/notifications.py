@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 
 import llm_worker
 from config import ANALYTICS_DIR, DATA_DIR, NOTIFICATION_HISTORY_FILE, NOTIFICATION_STATE_FILE, QUERIES
-from preferences import get_query_preferences, load_preferences
+from preferences import classify_country_origin, get_query_preferences, load_preferences
 from storage import read_existing_cars
 from utils import safe_int
 
@@ -426,6 +426,12 @@ def _is_notification_eligible(result: dict[str, Any], row: dict[str, Any], filte
     if _is_suspicious_unverified_listing(result, row):
         return False
 
+    exclude_non_eu_origin = _parse_bool(filters.get("exclude_non_eu_origin", False))
+    if exclude_non_eu_origin:
+        country_origin = str(row.get("details_country_origin") or "").strip()
+        if country_origin and classify_country_origin(country_origin) == "non_eu":
+            return False
+
     return True
 
 
@@ -774,6 +780,11 @@ def run(
                                     )
                                     if result_fields is not None:
                                         row.update(result_fields)
+                                        # Re-check eligibility if LLM just enriched country origin —
+                                        # the filter may now block this notification.
+                                        if result_fields.get("details_country_origin"):
+                                            if not _is_notification_eligible(analysis_result, row, filters):
+                                                event_type = None
 
                 if event_type is not None:
                     current_state.last_notification_event = event_type

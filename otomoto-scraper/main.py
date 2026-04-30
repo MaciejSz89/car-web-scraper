@@ -159,6 +159,7 @@ def _run_once(args: argparse.Namespace, chosen_headless: bool) -> None:
                 retry_failed=args.retry_failed_enrichment,
                 limit=args.enrichment_limit,
                 allowed_buckets=_allowed_buckets,
+                headless=chosen_headless,
             )
             logging.info(
                 "Enrichment worker zakończył się przetworzeniem %d wpisów.",

@@ -11,18 +11,21 @@
       "max_price_pln": 55000,
       "max_mileage_km": 170000,
       "min_year": 2016,
-      "fuel_types": ["Benzyna"],
+      "fuel_types": ["Benzyna", "petrol"],
       "min_engine_cm3": 1250,
       "min_power_hp": 100,
-      "gearboxes": ["Manualna", "Automatyczna"]
+      "gearboxes": ["Manualna", "Automatyczna", "manual", "automatic"]
     },
     "soft_preferences": {
       "preferred_gearboxes": {
         "Automatyczna": 12,
-        "Manualna": 0
+        "Manualna": 0,
+        "automatic": 12,
+        "manual": 0
       },
       "preferred_fuel_types": {
         "Benzyna": 10,
+        "petrol": 10,
         "Hybryda": 4,
         "LPG": -8
       },
@@ -37,6 +40,12 @@
       "high_mileage_penalty": {
         "min_mileage_km": 140000,
         "score": -12
+      },
+      "origin_scoring": {
+        "poland_bonus": 8,
+        "eu_penalty": -5,
+        "non_eu_penalty": -20,
+        "private_poland_bonus": 5
       }
     },
     "notification_filters": {
@@ -50,6 +59,7 @@
       "suppress_bucket_upgrade_after_reactivation_hours": 72,
       "exclude_damaged_listings": true,
       "damaged_handling": "llm",
+      "exclude_non_eu_origin": true,
       "blocked_enrichment_flags": [
         "airbags_deployed",
         "severe_front_damage",

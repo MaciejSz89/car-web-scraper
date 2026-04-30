@@ -1088,6 +1088,7 @@ def run(
     allowed_buckets: frozenset[str] | None = None,
     fetch_delay_range_seconds: tuple[float, float] = DEFAULT_FETCH_DELAY_RANGE_SECONDS,
     fetch_html: Callable[[str], str] = fetch_listing_html,
+    headless: bool = HEADLESS,
 ) -> list[dict[str, Any]]:
     resolved_data_dir = data_dir or str(DATA_DIR)
     resolved_queue_file = queue_file or os.path.join(resolved_data_dir, "enrichment_queue.csv")
@@ -1187,7 +1188,7 @@ def run(
     if mobile_de_count:
         logger.info("Enrichment: %d ofert mobile.de — uruchamiam MobileDeHtmlFetcher.", mobile_de_count)
         mobile_de_fetcher = MobileDeHtmlFetcher(
-            headless=HEADLESS,
+            headless=headless,
             session_state_file=SESSION_STATE_FILE_MOBILE_DE,
         )
 

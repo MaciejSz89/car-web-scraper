@@ -10,6 +10,78 @@ from utils import safe_int
 
 JsonDict = dict[str, Any]
 
+# Kody Otomoto (lowercase) dla krajów UE — bez "pl" (obsługiwany osobno).
+# Źródło: wartości pola parametersDict.country_origin na stronie Otomoto.
+EU_OTOMOTO_CODES: frozenset[str] = frozenset({
+    "a",   # Austria
+    "b",   # Belgia
+    "bg",  # Bułgaria
+    "hr",  # Chorwacja
+    "cy",  # Cypr
+    "cz",  # Czechy
+    "dk",  # Dania
+    "est", # Estonia
+    "fi",  # Finlandia
+    "f",   # Francja
+    "gr",  # Grecja
+    "hu",  # Węgry
+    "ie",  # Irlandia
+    "i",   # Włochy
+    "lv",  # Łotwa
+    "lt",  # Litwa
+    "lu",  # Luksemburg
+    "mt",  # Malta
+    "nl",  # Holandia
+    "pt",  # Portugalia
+    "ro",  # Rumunia
+    "sk",  # Słowacja
+    "si",  # Słowenia
+    "e",   # Hiszpania
+    "s",   # Szwecja
+})
+
+# Kody ISO-3166-1 alpha-2 (lowercase) dla krajów UE — używane np. przez mobile.de ("DE").
+EU_ISO2_CODES: frozenset[str] = frozenset({
+    "at", "be", "bg", "hr", "cy", "cz", "dk", "ee", "fi", "fr",
+    "de", "gr", "hu", "ie", "it", "lv", "lt", "lu", "mt", "nl",
+    "pt", "ro", "sk", "si", "es", "se",
+})
+
+# Polskie nazwy krajów UE (lowercase) — do klasyfikacji wartości zwróconych przez LLM.
+EU_COUNTRY_POLISH_NAMES: frozenset[str] = frozenset({
+    "austria", "belgia", "bułgaria", "chorwacja", "cypr", "czechy",
+    "dania", "estonia", "finlandia", "francja", "grecja", "hiszpania",
+    "holandia", "niderlandy", "irlandia", "litwa", "luksemburg",
+    "łotwa", "malta", "niemcy", "portugalia", "rumunia",
+    "słowacja", "słowenia", "szwecja", "węgry", "włochy",
+})
+
+
+def classify_country_origin(country: str) -> str:
+    """Klasyfikuje kraj pochodzenia auta.
+
+    Obsługuje kody Otomoto (np. 'pl', 'd', 'usa'), kody ISO-2 (np. 'DE' z mobile.de)
+    oraz polskie nazwy krajów (np. 'Niemcy' zwrócone przez LLM).
+
+    Zwraca: 'poland', 'eu', 'non_eu' lub 'unknown' gdy brak danych.
+    """
+    normalized = country.strip().lower()
+    if not normalized:
+        return "unknown"
+    # Polska — kod Otomoto lub polska nazwa
+    if normalized in ("pl", "polska"):
+        return "poland"
+    # EU — kody Otomoto
+    if normalized in EU_OTOMOTO_CODES:
+        return "eu"
+    # EU — kody ISO-2 (np. "de" z mobile.de)
+    if normalized in EU_ISO2_CODES:
+        return "eu"
+    # EU — polskie nazwy (ekstrakcja LLM)
+    if normalized in EU_COUNTRY_POLISH_NAMES:
+        return "eu"
+    return "non_eu"
+
 
 def _load_json_dict(file_path: str) -> JsonDict:
     with open(file_path, "r", encoding="utf-8") as file_handle:
@@ -174,6 +246,32 @@ def evaluate_preferences(car: JsonDict, query_name: str, preferences: JsonDict) 
         score += reliability_bonus
         label = f"+{reliability_bonus}" if reliability_bonus > 0 else str(reliability_bonus)
         reasons.append(f"korekta wiarygodnosci zrodla {source}: {label}")
+
+    origin_scoring_cfg = soft_preferences.get("origin_scoring")
+    if isinstance(origin_scoring_cfg, dict):
+        country_origin = str(car.get("details_country_origin") or "").strip()
+        if country_origin:
+            origin_tier = classify_country_origin(country_origin)
+            if origin_tier == "poland":
+                poland_bonus = safe_int(origin_scoring_cfg.get("poland_bonus")) or 0
+                if poland_bonus:
+                    score += poland_bonus
+                    reasons.append(f"premia za polskie pochodzenie: +{poland_bonus}")
+                private_poland_bonus = safe_int(origin_scoring_cfg.get("private_poland_bonus")) or 0
+                seller_type_raw = str(car.get("seller_type") or "").strip().lower()
+                if private_poland_bonus and seller_type_raw == "private":
+                    score += private_poland_bonus
+                    reasons.append(f"premia za prywatnego sprzedawce z Polski: +{private_poland_bonus}")
+            elif origin_tier == "eu":
+                eu_penalty = safe_int(origin_scoring_cfg.get("eu_penalty")) or 0
+                if eu_penalty:
+                    score += eu_penalty
+                    reasons.append(f"korekta za auto z UE (nie-PL) ({country_origin}): {eu_penalty:+d}")
+            elif origin_tier == "non_eu":
+                non_eu_penalty = safe_int(origin_scoring_cfg.get("non_eu_penalty")) or 0
+                if non_eu_penalty:
+                    score += non_eu_penalty
+                    reasons.append(f"kara za auto spoza UE ({country_origin}): {non_eu_penalty:+d}")
 
     return {
         "hard_filter_passed": True,

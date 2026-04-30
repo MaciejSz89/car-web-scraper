@@ -4,6 +4,17 @@ Chronologiczny dziennik istotnych zmian w projekcie. Nowe wpisy dopisuj na górz
 
 ---
 
+## 2026-04-30
+
+- Dodano scoring i filtrowanie po kraju pochodzenia pojazdu (`details_country_origin`):
+  - Nowa sekcja `origin_scoring` w `soft_preferences` (`preferences.json`/`preferences.example.json`) — pola `poland_bonus`, `private_poland_bonus`, `eu_penalty`, `non_eu_penalty`; scoring stosowany w `evaluate_preferences()` w `preferences.py` na podstawie pola `details_country_origin` (wypełnianego przez enrichment lub LLM).
+  - Nowy filtr `exclude_non_eu_origin` w `notification_filters` (domyślnie `true`) — oferty z potwierdzonym krajem spoza UE nie trafiają do powiadomień Telegram.
+  - Funkcja `classify_country_origin()` w `preferences.py` obsługuje trzy formaty wartości: kody Otomoto (`pl`, `d`, `f`, `usa`…), kody ISO-2 (`DE`, `FR`… z mobile.de) oraz polskie nazwy krajów (wartości wyekstrahowane przez LLM).
+- LLM wyekstrahuje kraj pochodzenia z opisu ogłoszenia, gdy brak strukturalnego `details_country_origin`:
+  - Format odpowiedzi LLM rozszerzony o pole `country_origin` (polska nazwa kraju lub pusty string).
+  - `update_listing_llm_result()` w `llm_worker.py` zapisuje wyekstrahowany kraj do CSV (`details_country_origin`), jeśli pole było puste.
+  - `review_single()` zwraca `details_country_origin` w result dict — `notifications.py` natychmiast aktualizuje `row` i ponownie sprawdza `_is_notification_eligible()` w tym samym runie.
+
 ## 2026-04-22
 
 - Zaimplementowano scoring świadomy źródła danych (REQ-066): nowa sekcja `source_adjustments` w `preferences.json`/`preferences.example.json` — per-source parametry `import_cost_pln` i `reliability_score_bonus`; `_calculate_market_score()` w `analytics.py` używa efektywnej ceny (cena + koszty importu) do obliczania pozycji vs mediana segmentu; hard-filter `max_price_pln` w `preferences.py` sprawdza efektywną cenę; domyślna konfiguracja: mobile.de → `import_cost_pln: 5000 PLN`.

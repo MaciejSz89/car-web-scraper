@@ -30,12 +30,13 @@ Szczegółowe reguły projektowe, kontrakty danych i zasady działania każdej w
 - `soft_preferences`: reguły zwiększające lub zmniejszające `preference_score`, np. premia za automat albo karanie LPG.
 - `boost_rules`: dodatkowe premie za szczególnie pożądane konfiguracje, np. wyższy rocznik albo mocniejszy silnik.
 - `notification_filters`: reguły blokujące powiadomienia mimo wysokiego `market_score`, jeśli oferta nie pasuje do preferencji użytkownika.
+- `origin_scoring` (podsekcja `soft_preferences`): premia/kara za kraj pochodzenia pojazdu — `poland_bonus`, `private_poland_bonus`, `eu_penalty`, `non_eu_penalty`.
 
 ### 3. Zakres konfiguracji preferencji
 
 - Preferencje globalne mają działać dla całego projektu.
 - Preferencje per kwerenda mają nadpisywać lub rozszerzać ustawienia globalne dla konkretnego modelu.
-- Preferencje powinny obsługiwać co najmniej: minimalny i maksymalny przebieg, minimalną pojemność, minimalną moc, paliwo, skrzynię, budżet i rocznik.
+- Preferencje powinny obsługiwać co najmniej: minimalny i maksymalny przebieg, minimalną pojemność, minimalną moc, paliwo, skrzynię, budżet, rocznik i kraj pochodzenia pojazdu.
 
 ### 4. Wpływ preferencji na pipeline
 
@@ -270,6 +271,7 @@ Szczegółowe reguły projektowe, kontrakty danych i zasady działania każdej w
 
 - Sygnały ryzyka: szkoda, naprawy, brak dokumentacji, problemy prawne, import, komis, niejasna historia, agresywny marketing.
 - Sygnały pozytywne: serwis ASO, pierwszy właściciel, udokumentowana historia, bezwypadkowość.
+- Kraj pochodzenia: jeśli brak strukturalnego `details_country_origin`, LLM wyekstrahuje kraj z opisu ogłoszenia i zwróci go w polu `country_origin` odpowiedzi JSON. Wartość jest natychmiast zapisywana do CSV (`details_country_origin`) i wpływa na filtr powiadomień w tym samym runie.
 
 ### 4. Wymagany wynik LLM
 
@@ -278,6 +280,7 @@ Szczegółowe reguły projektowe, kontrakty danych i zasady działania każdej w
 - `llm_summary` — 3-5 zdań (ocena cenowa, kluczowe sygnały, rekomendacja).
 - `llm_reasons` — do 8 głównych sygnałów.
 - `llm_confidence` — poziom pewności modelu.
+- `country_origin` — kraj wyekstrahowany z opisu (pusty string gdy kraj jest już znany ze struktury danych).
 
 ### 5. Reguły bezpieczeństwa dla LLM
 
@@ -307,6 +310,7 @@ Szczegółowe reguły projektowe, kontrakty danych i zasady działania każdej w
 - Każdy kolejny przebieg bez nowego sygnału.
 - Ta sama oferta z niezmienionymi: bucketem, ceną i statusem.
 - Oferta z bucketem `watch` niespełniająca progów istotności.
+- Oferta z potwierdzonym krajem pochodzenia spoza UE, gdy włączony jest filtr `exclude_non_eu_origin`.
 
 ### 4. Reguły deduplikacji
 

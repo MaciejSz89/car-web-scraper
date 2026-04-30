@@ -112,6 +112,7 @@ def update_listing_llm_result(
     summary: str,
     reasons: list[str],
     reviewed_at: str,
+    country_origin: str = "",
 ) -> bool:
     if not os.path.exists(csv_file):
         return False
@@ -131,6 +132,9 @@ def update_listing_llm_result(
         row["llm_summary"] = summary
         row["llm_reasons"] = "|".join(reasons)
         row["llm_reviewed_at"] = reviewed_at
+        # Backfill country_origin only when LLM extracted it and CSV field is empty
+        if country_origin and not str(row.get("details_country_origin") or "").strip():
+            row["details_country_origin"] = country_origin
         updated = True
         break
 
@@ -378,7 +382,7 @@ def build_prompt(
         "",
         "Odpowiedz WYŁĄCZNIE poprawnym obiektem JSON (bez markdown, bez żadnych dodatkowych znaków).",
         "Format odpowiedzi:",
-        '{"verdict":"approve|review|reject","risk_level":"low|medium|high","confidence":<0-100>,"summary":"3-5 zdań po polsku: ocena pozycji cenowej, kluczowe sygnały pozytywne i negatywne, rekomendacja działania","reasons":["konkretny powód 1","konkretny powód 2"]}',
+        '{"verdict":"approve|review|reject","risk_level":"low|medium|high","confidence":<0-100>,"summary":"3-5 zdań po polsku: ocena pozycji cenowej, kluczowe sygnały pozytywne i negatywne, rekomendacja działania","reasons":["konkretny powód 1","konkretny powód 2"],"country_origin":"<kraj po polsku lub pusty string>"}',
         "",
         "Zasady:",
         '- "approve": solidne sygnały pozytywne, brak istotnych ryzyk — wart oględzin',
@@ -387,6 +391,16 @@ def build_prompt(
         "- Nie awansuj do approve wyłącznie ze względu na korzystną cenę",
         "- W summary napisz konkretnie: co jest dobre, co budzi wątpliwości, co warto sprawdzić",
         "- W reasons podaj dokładne, weryfikowalne obserwacje (max 8); unikaj ogólników jak 'oferta wygląda dobrze'",
+        *(
+            [
+                "- country_origin: jeśli dane strukturalne nie zawierają kraju pochodzenia, wyekstrahuj go z opisu "
+                "(np. 'auto sprowadzone z Niemiec' → 'Niemcy'); zostaw pusty string jeśli kraj jest nieznany",
+            ]
+            if not country_origin_val
+            else [
+                "- country_origin: kraj jest już znany ze struktury danych — zwróć pusty string",
+            ]
+        ),
     ]
 
     return "\n".join(lines)
@@ -446,7 +460,9 @@ def _parse_llm_response(raw: dict[str, Any]) -> tuple[str, str, int, str, list[s
             if cleaned:
                 reasons.append(cleaned)
 
-    return verdict, risk_level, confidence, summary, reasons
+    country_origin = clean_text(str(raw.get("country_origin") or "")) or ""
+
+    return verdict, risk_level, confidence, summary, reasons, country_origin
 
 
 # ── Main run ──────────────────────────────────────────────────────────────────
@@ -536,7 +552,7 @@ def run(
                 max_tokens=max_tokens,
                 temperature=temperature,
             )
-            verdict, risk_level, confidence, summary, reasons = _parse_llm_response(raw_response)
+            verdict, risk_level, confidence, summary, reasons, country_origin = _parse_llm_response(raw_response)
             update_listing_llm_result(
                 csv_file,
                 listing_id,
@@ -546,6 +562,7 @@ def run(
                 summary=summary,
                 reasons=reasons,
                 reviewed_at=reviewed_at,
+                country_origin=country_origin,
             )
             results.append({
                 "listing_id": listing_id,
@@ -666,7 +683,7 @@ def review_single(
             max_tokens=session.max_tokens,
             temperature=session.temperature,
         )
-        verdict, risk_level, confidence, summary, reasons = _parse_llm_response(raw_response)
+        verdict, risk_level, confidence, summary, reasons, country_origin = _parse_llm_response(raw_response)
     except RateLimitError as exc:
         logger.warning(
             "LLM on-demand: rate limit — wyłączam dalsze próby: %s", exc
@@ -693,6 +710,7 @@ def review_single(
         summary=summary,
         reasons=reasons,
         reviewed_at=reviewed_at,
+        country_origin=country_origin,
     )
     session.calls_made += 1
     logger.info(
@@ -704,7 +722,7 @@ def review_single(
         session.calls_made,
         session.limit,
     )
-    return {
+    result: dict[str, Any] = {
         "llm_verdict": verdict,
         "llm_risk_level": risk_level,
         "llm_confidence": str(confidence),
@@ -712,6 +730,9 @@ def review_single(
         "llm_reasons": "|".join(reasons),
         "llm_reviewed_at": reviewed_at,
     }
+    if country_origin and not str(listing_row.get("details_country_origin") or "").strip():
+        result["details_country_origin"] = country_origin
+    return result
 
 
 def main() -> None:
