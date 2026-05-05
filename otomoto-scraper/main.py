@@ -6,7 +6,7 @@ import time
 
 from analytics import save_query_analysis
 from notifications import run as run_notifications_pipeline, retry_failed_notifications
-from enrichment_worker import run as run_enrichment_worker, reprocess_details_flags
+from enrichment_worker import run as run_enrichment_worker, reprocess_details_flags, reset_stale_enrichment
 from llm_worker import run as run_llm_worker
 from preferences import load_preferences
 from scraper import get_html_pages
@@ -217,6 +217,20 @@ def _run_once(args: argparse.Namespace, chosen_headless: bool) -> None:
         except Exception:
             logging.exception("reprocess-details nie powiodło się")
 
+    if args.reset_stale_enrichment:
+        try:
+            counts = reset_stale_enrichment()
+            logging.info(
+                "reset-stale-enrichment: zresetowano %d wpisów, pominięto %d, brak JSON %d, błędy %d.",
+                counts["reset"], counts["skipped"], counts["missing_json"], counts["errors"],
+            )
+            print(
+                f"reset-stale-enrichment: reset={counts['reset']}, skipped={counts['skipped']}, "
+                f"missing_json={counts['missing_json']}, errors={counts['errors']}"
+            )
+        except Exception:
+            logging.exception("reset-stale-enrichment nie powiodło się")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Otomoto scraper")
@@ -293,6 +307,12 @@ def main() -> None:
         "--reprocess-details",
         action="store_true",
         help="Przetworz ponownie istniejące pliki JSON z dysku i popraw flagi damaged/imported w CSV (bez pobierania).",
+    )
+    parser.add_argument(
+        "--reset-stale-enrichment",
+        action="store_true",
+        dest="reset_stale_enrichment",
+        help="Wykryj i zresetuj wpisy z sidecar JSON zawierającymi korupcję key==value (sprzed poprawki kwiecień 2022). Usuwa stare JSON i czyści details_* pola, by enrichment pobrał je ponownie.",
     )
     parser.add_argument(
         "--loop",

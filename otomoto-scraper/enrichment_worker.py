@@ -1342,6 +1342,132 @@ def reprocess_details_flags(
     return counts
 
 
+# ── Migration: reset listings with stale (pre-fix) sidecar JSONs ─────────────
+
+_STALE_CRITICAL_KEYS = frozenset({"country_origin", "is_imported_car", "damaged", "no_accident"})
+_STALE_DETAILS_FIELDS = (
+    "details_status",
+    "details_based_on_price_pln",
+    "details_based_on_last_seen_date",
+    "details_based_on_decision_bucket",
+    "details_fields_present",
+    "details_description_excerpt",
+    "details_seller_name",
+    "details_vin",
+    "details_country_origin",
+    "details_no_accident_flag",
+    "details_damaged_flag",
+    "details_service_record_flag",
+    "details_imported_flag",
+    "details_enrichment_score",
+    "details_enrichment_confidence",
+    "details_enrichment_flags",
+)
+
+
+def _is_stale_parameters(parameters: Any) -> bool:
+    """Return True when the parameters dict shows the pre-April-22 key==value corruption.
+
+    In corrupted data every parameter value is the same string as its own key
+    (result of old normalization that read .label instead of .values[0].value).
+    We consider a sidecar JSON stale when at least 2 of the known critical fields
+    carry that corruption, which is an unambiguous fingerprint of the bug.
+    """
+    if not isinstance(parameters, dict) or not parameters:
+        return False
+    corrupted = sum(1 for k in _STALE_CRITICAL_KEYS if parameters.get(k) == k)
+    return corrupted >= 2
+
+
+def reset_stale_enrichment(
+    data_dir: str | None = None,
+    details_dir: str | None = None,
+) -> dict[str, int]:
+    """Detect sidecar JSONs corrupted by the pre-April-22 parametersDict bug and reset
+    those listings for re-enrichment.
+
+    A sidecar is considered stale when its ``parameters`` dict has >= 2 critical
+    fields whose value equals the key name (e.g. ``"country_origin": "country_origin"``).
+    For every stale listing the sidecar JSON is deleted and all ``details_*`` CSV
+    columns are cleared so the enrichment selector will pick the listing up again
+    in the next run.
+
+    Returns a dict with counts: reset, skipped, missing_json, errors.
+    """
+    resolved_data_dir = data_dir or str(DATA_DIR)
+    resolved_details_dir = details_dir or os.path.join(resolved_data_dir, "details")
+
+    counts: dict[str, int] = {"reset": 0, "skipped": 0, "missing_json": 0, "errors": 0}
+
+    _EXCLUDED_CSVS = {"enrichment_queue.csv", "notification_history.csv", "notification_state.csv"}
+
+    for file_name in os.listdir(resolved_data_dir):
+        if not file_name.endswith(".csv") or file_name in _EXCLUDED_CSVS:
+            continue
+
+        csv_file = os.path.join(resolved_data_dir, file_name)
+        try:
+            fieldnames, rows = _read_csv_rows(csv_file)
+        except Exception:
+            logger.exception("reset_stale_enrichment: nie można odczytać %s", csv_file)
+            counts["errors"] += 1
+            continue
+
+        changed = False
+        for row in rows:
+            if (row.get("details_status") or "").strip().lower() != "fetched":
+                counts["skipped"] += 1
+                continue
+
+            listing_id = str(row.get("listing_id") or "").strip()
+            if not listing_id:
+                counts["skipped"] += 1
+                continue
+
+            json_path = os.path.join(resolved_details_dir, f"{listing_id}.json")
+            if not os.path.exists(json_path):
+                counts["missing_json"] += 1
+                continue
+
+            try:
+                with open(json_path, "r", encoding="utf-8") as fh:
+                    payload = json.load(fh)
+            except (OSError, json.JSONDecodeError):
+                logger.warning("reset_stale_enrichment: nie można odczytać %s", json_path)
+                counts["errors"] += 1
+                continue
+
+            parameters = payload.get("parameters") if isinstance(payload.get("parameters"), dict) else {}
+            if not _is_stale_parameters(parameters):
+                counts["skipped"] += 1
+                continue
+
+            # Clear all details_* fields so the enrichment selector re-queues this listing
+            for field in _STALE_DETAILS_FIELDS:
+                row[field] = ""
+
+            # Delete the corrupt sidecar so the worker fetches a fresh copy
+            try:
+                os.remove(json_path)
+                logger.info("reset_stale_enrichment: usunięto stary sidecar %s", json_path)
+            except OSError:
+                logger.warning("reset_stale_enrichment: nie można usunąć %s", json_path)
+
+            changed = True
+            counts["reset"] += 1
+            logger.info("reset_stale_enrichment: zresetowano %s (listing_id=%s)", file_name, listing_id)
+
+        if changed:
+            try:
+                _write_csv_rows(csv_file, fieldnames, rows)
+                logger.info("reset_stale_enrichment: zapisano %s", file_name)
+            except Exception:
+                logger.exception("reset_stale_enrichment: nie można zapisać %s", csv_file)
+                counts["errors"] += 1
+
+    return counts
+
+
 def main() -> None:
     args = parse_args()
     run(
