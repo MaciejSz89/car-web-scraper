@@ -1,0 +1,29 @@
+# Wszystko, co nie jest potrzebne do zbudowania obrazu
+.git/
+.github/
+.venv/
+.vscode/
+.idea/
+.pytest_cache/
+**/__pycache__/
+**/*.py[cod]
+
+# Dane, artefakty i stan sesji — montowane jako volume, nigdy w obrazie
+data/
+artifacts/
+*.log
+*.zip
+**/.playwright-session-state.json
+**/.session-state*.json
+**/*_debug-*.html
+otomoto-scraper/debug-errors/
+otomoto-scraper/_scratch/
+
+# Prywatna konfiguracja i sekrety — montowane w /config i przez env
+.env
+.env.*
+otomoto-scraper/queries.json
+otomoto-scraper/preferences.json
+
+docs/
+tests/

@@ -7,7 +7,10 @@ Przed czytaniem kodu sprawdź dokumentację w `docs/`:
 - `docs/architecture.md` — reguły projektowe, kontrakty danych, zasady działania każdej warstwy
 - `docs/requirements.md` — tabela wymagań ze statusami (czytaj tylko gdy szukasz konkretnego REQ-ID)
 - `docs/usage.md` — parametry CLI i konfiguracja
-- `docs/changelog.md` — ostatnie zmiany (czytaj gdy potrzebujesz kontekstu historycznego)
+- `docs/changelog.md` — ostatnie zmiany według wersji (czytaj gdy potrzebujesz kontekstu historycznego)
+- `docs/deployment.md` — Docker, zmienne środowiskowe, wolumeny
+- `docs/releasing.md` — SemVer i procedura wydania (wersja tylko w `pyproject.toml`)
+- `docs/cloud.md` — plan migracji do chmury
 
 **Nie czytaj całej tabeli wymagań** — jest obszerna. Szukaj konkretnego REQ-ID lub obszaru gdy naprawdę potrzebujesz.
 
@@ -64,6 +67,9 @@ Testy są w `tests/`. Nazwy plików: `test_<moduł>.py`. Nie ma fixtures globaln
 - `otomoto-scraper/queries.json` — kwerendy (wzorzec: `queries.example.json`)
 - `otomoto-scraper/preferences.json` — preferencje użytkownika (wzorzec: `preferences.example.json`)
 - Dane: `data/otomoto/` — CSV, kolejka enrichmentu, state powiadomień, analytics JSON, sidecar JSON
+- Ścieżki danych/konfiguracji i headless można nadpisać env: `CARSCRAPER_DATA_DIR`, `CARSCRAPER_CONFIG_DIR`, `CARSCRAPER_HEADLESS`. Zawsze używaj `config.DATA_DIR` — nigdy zahardkodowanych ścieżek (w kontenerze dane są w `/data`).
+- Sekrety wyłącznie przez zmienne środowiskowe (`*_env` w `preferences.json`), nigdy w plikach w repo.
+- Przy zmianie zależności: `uv add ...` / `uv lock` — CI używa `--frozen`.
 
 ## Minimalizacja czytania tokenów
 

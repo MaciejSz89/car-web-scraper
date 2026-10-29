@@ -1,0 +1,37 @@
+# CarWebScraper — uruchomienie lokalne / na pojedynczym serwerze.
+#
+#   cp .env.example .env        # uzupełnij sekrety
+#   docker compose up -d --build
+#   docker compose logs -f
+#
+# Jednorazowe polecenia (te same flagi co w CLI):
+#   docker compose run --rm scraper --dry-run --run-notifications
+
+services:
+  scraper:
+    build:
+      context: .
+      args:
+        VERSION: ${CARSCRAPER_VERSION:-dev}
+    image: ghcr.io/maciejsz89/car-web-scraper:${CARSCRAPER_VERSION:-latest}
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      CARSCRAPER_HEADLESS: "1"
+    command: ["--run-enrichment", "--run-notifications", "--loop", "--loop-interval", "${CARSCRAPER_LOOP_INTERVAL:-1800}"]
+    volumes:
+      # Historia ofert, kolejki, stan powiadomień, sidecar JSON, stan sesji przeglądarki
+      - ${CARSCRAPER_HOST_DATA_DIR:-./data/otomoto}:/data
+      # queries.json + preferences.json (gdy ich brak, używane są pliki *.example.json z obrazu)
+      - ${CARSCRAPER_HOST_CONFIG_DIR:-./otomoto-scraper}:/config:ro
+    # Chromium potrzebuje więcej niż domyślne 64 MB /dev/shm
+    shm_size: 1gb
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

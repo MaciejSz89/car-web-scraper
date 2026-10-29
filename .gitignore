@@ -26,3 +26,5 @@ __pycache__/
 
 # Scratch / diagnostic scripts (not for VCS)
 otomoto-scraper/_scratch/
+# Test cache
+.pytest_cache/

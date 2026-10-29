@@ -5,6 +5,7 @@ Usage:
 """
 import glob
 import os
+from config import DATA_DIR
 from enrichment_selector import select_from_csv, write_queue
 
 
@@ -15,7 +16,7 @@ def find_storage_csvs(data_dir: str):
 
 def run(data_dir: str = None, out_file: str = None, top_per_source: int = 50):
     if data_dir is None:
-        data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data", "otomoto"))
+        data_dir = str(DATA_DIR)
     if out_file is None:
         out_file = os.path.join(data_dir, "enrichment_queue.csv")
 
