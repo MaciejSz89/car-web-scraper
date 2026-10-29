@@ -27,6 +27,9 @@ from config import (
     RETRY_BACKOFF_DELAY_RANGE_MS,
     SESSION_STATE_FILE,
     SESSION_STATE_FILE_MOBILE_DE,
+    DATA_DIR,
+    CONFIG_DIR,
+    get_version,
 )
 
 
@@ -246,6 +249,11 @@ def main() -> None:
         action="store_false",
         help="Uruchom przeglądarkę w trybie okienkowym (nadpisuje config).",
     )
+    # None = brak flagi -> decyduje config.HEADLESS (zmienna CARSCRAPER_HEADLESS)
+    parser.set_defaults(headless=None)
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {get_version()}"
+    )
     parser.add_argument(
         "--verbose", action="store_true", help="Włącz verbose logging (DEBUG)."
     )
@@ -336,6 +344,10 @@ def main() -> None:
     )
 
     chosen_headless = args.headless if args.headless is not None else HEADLESS
+    logging.info(
+        "CarWebScraper v%s (headless=%s, data=%s, config=%s)",
+        get_version(), chosen_headless, DATA_DIR, CONFIG_DIR,
+    )
 
     if args.loop:
         logging.info("Tryb pętli: interwał %d s. Przerwij Ctrl+C aby zatrzymać.", args.loop_interval)

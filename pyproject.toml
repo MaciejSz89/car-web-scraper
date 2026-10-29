@@ -1,7 +1,7 @@
 [project]
 name = "carwebscraper"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.2.0"
+description = "Scraper ogłoszeń samochodowych (Otomoto, mobile.de) ze scoringiem rynkowym, enrichmentem, oceną LLM i powiadomieniami Telegram."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -11,3 +11,11 @@ dependencies = [
 	"playwright>=1.53.0",
 	"python-telegram-bot>=22.7",
 ]
+
+[dependency-groups]
+dev = [
+	"pytest>=9.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

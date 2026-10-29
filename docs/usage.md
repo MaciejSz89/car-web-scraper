@@ -2,6 +2,8 @@
 
 ## Wymagania wstępne
 
+> Uruchomienie w Dockerze (bez lokalnego Pythona i przeglądarek): [deployment.md](deployment.md).
+
 - Python ≥ 3.13
 - [uv](https://docs.astral.sh/uv/) (zalecany manager środowiska)
 - Playwright Chromium: `uv run playwright install chromium`
@@ -39,6 +41,18 @@ Definiuje preferencje użytkownika:
 - `source_adjustments` — per-źródło `import_cost_pln` i `reliability_score_bonus`
 
 Wzorzec: `preferences.example.json`.
+
+### Zmienne środowiskowe
+
+| Zmienna | Domyślnie | Opis |
+| --- | --- | --- |
+| `CARSCRAPER_DATA_DIR` | `data/otomoto` w repo | Katalog danych (CSV, kolejki, sidecar JSON, stan sesji) |
+| `CARSCRAPER_CONFIG_DIR` | `otomoto-scraper/` | Katalog z `queries.json` i `preferences.json` |
+| `CARSCRAPER_HEADLESS` | `0` | Headless, gdy nie podano `--headless` / `--no-headless` |
+| `OPENAI_API_KEY` | — | Klucz OpenAI (nazwa z `llm.api_key_env`) |
+| `OTOMOTO_TELEGRAM_BOT_TOKEN`, `OTOMOTO_TELEGRAM_CHAT_ID` | — | Kanał Telegram (nazwy z `*_env` w `channels`) |
+
+Gdy w `CARSCRAPER_CONFIG_DIR` brak `queries.json` / `preferences.json`, używane są pliki `*.example.json`.
 
 ---
 
@@ -114,7 +128,8 @@ uv run .\otomoto-scraper\main.py --reprocess-details
 
 | Parametr                       | Opis                                                         |
 | ------------------------------ | ------------------------------------------------------------ |
-| `--headless`                   | Uruchamia Playwright w trybie headless                       |
+| `--version`                    | Wyświetla wersję aplikacji                                   |
+| `--headless` / `--no-headless` | Wymusza tryb headless / okienkowy (nadpisuje `CARSCRAPER_HEADLESS`) |
 | `--verbose`                    | Bardziej szczegółowe logi                                    |
 | `--dry-run`                    | Pomija scraping (zachowuje enrichment i powiadomienia)       |
 | `--run-enrichment`             | Uruchamia etap enrichmentu                                   |
@@ -135,7 +150,8 @@ uv run .\otomoto-scraper\main.py --reprocess-details
 ## Testy
 
 ```powershell
-uv run pytest tests/
+uv sync            # instaluje też grupę dev (pytest)
+uv run pytest
 ```
 
 ---

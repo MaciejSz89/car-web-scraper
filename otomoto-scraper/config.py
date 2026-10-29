@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tomllib
 from pathlib import Path
 from typing import TypedDict
 from urllib.parse import urlencode
@@ -25,20 +27,35 @@ class QueryConfig(TypedDict):
 	enabled: bool
 
 
+def _env_path(name: str, default: Path) -> Path:
+	"""Zwraca ścieżkę ze zmiennej środowiskowej `name` albo `default`, gdy zmienna jest pusta."""
+	value = os.environ.get(name, "").strip()
+	return Path(value).expanduser().resolve() if value else default
+
+
+def _env_bool(name: str, default: bool) -> bool:
+	value = os.environ.get(name, "").strip().lower()
+	if not value:
+		return default
+	return value in ("1", "true", "yes", "on")
+
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SCRAPER_DIR = PROJECT_ROOT / "otomoto-scraper"
-DATA_DIR = PROJECT_ROOT / "data" / "otomoto"
+# Katalog danych i konfiguracji można przenieść poza repo (Docker volume, dysk w chmurze).
+DATA_DIR = _env_path("CARSCRAPER_DATA_DIR", PROJECT_ROOT / "data" / "otomoto")
+CONFIG_DIR = _env_path("CARSCRAPER_CONFIG_DIR", SCRAPER_DIR)
 ANALYTICS_DIR = DATA_DIR / "analytics"
 NOTIFICATION_HISTORY_FILE = DATA_DIR / "notification_history.csv"
 NOTIFICATION_STATE_FILE = DATA_DIR / "notification_state.csv"
-QUERIES_FILE = SCRAPER_DIR / "queries.json"
+QUERIES_FILE = CONFIG_DIR / "queries.json"
 QUERIES_EXAMPLE_FILE = SCRAPER_DIR / "queries.example.json"
-PREFERENCES_FILE = SCRAPER_DIR / "preferences.json"
+PREFERENCES_FILE = CONFIG_DIR / "preferences.json"
 PREFERENCES_EXAMPLE_FILE = SCRAPER_DIR / "preferences.example.json"
 SESSION_STATE_FILE = DATA_DIR / ".session-state.json"
 SESSION_STATE_FILE_MOBILE_DE = DATA_DIR / ".session-state-mobile_de.json"
 
-HEADLESS = False
+HEADLESS = _env_bool("CARSCRAPER_HEADLESS", False)
 WAIT_MS = 3000
 MAX_PAGES = 10
 MAX_NAVIGATION_RETRIES = 3
@@ -49,6 +66,15 @@ PAGE_BREAK_DELAY_RANGE_MS = (4000, 8000)
 SCROLL_PAUSE_RANGE_MS = (900, 2200)
 SCROLL_STEP_RANGE_PX = (1400, 4200)
 RETRY_BACKOFF_DELAY_RANGE_MS = (4000, 10000)
+
+
+def get_version() -> str:
+	"""Wersja aplikacji z `pyproject.toml` (jedno źródło prawdy dla CLI, obrazu Docker i release'ów)."""
+	try:
+		with open(PROJECT_ROOT / "pyproject.toml", "rb") as file_handle:
+			return str(tomllib.load(file_handle)["project"]["version"])
+	except (OSError, KeyError, tomllib.TOMLDecodeError):
+		return "unknown"
 
 
 def build_otomoto_url(params: OtomotoParams) -> str:

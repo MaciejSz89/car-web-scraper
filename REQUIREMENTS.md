@@ -7,10 +7,13 @@ Szczegółowe reguły i opisy znajdują się w katalogu [`docs/`](docs/).
 
 | Plik | Zawartość |
 |---|---|
-| [`docs/requirements.md`](docs/requirements.md) | Pełna tabela wymagań (REQ-001 … REQ-066) ze statusami i uwagami |
+| [`docs/requirements.md`](docs/requirements.md) | Pełna tabela wymagań (REQ-001 … REQ-071) ze statusami i uwagami |
 | [`docs/architecture.md`](docs/architecture.md) | Reguły projektowe, kontrakty danych, reguły segmentacji, deal_score, enrichmentu, LLM i powiadomień |
 | [`docs/usage.md`](docs/usage.md) | Instrukcja użytkowania: konfiguracja, parametry CLI, uruchamianie, testy |
-| [`docs/changelog.md`](docs/changelog.md) | Chronologiczny dziennik zmian |
+| [`docs/deployment.md`](docs/deployment.md) | Uruchamianie w Dockerze: obraz, compose, zmienne środowiskowe, wolumeny, backup |
+| [`docs/releasing.md`](docs/releasing.md) | Wersjonowanie SemVer, procedura wydania, CI/CD |
+| [`docs/cloud.md`](docs/cloud.md) | Analiza i plan migracji do chmury |
+| [`docs/changelog.md`](docs/changelog.md) | Dziennik zmian według wersji |
 
 ## Szybki status (aktywne obszary)
 
@@ -24,7 +27,8 @@ Szczegółowe reguły i opisy znajdują się w katalogu [`docs/`](docs/).
 | Notifications | REQ-007, 016, 034–036, 055 | — |
 | Preferences | REQ-037–039 | — |
 | Parsing | REQ-043, 045, 063 | — |
-| Tooling | REQ-044, 056 | — |
+| Tooling | REQ-044, 056, 068 | REQ-071 (sygnalizacja porażki) |
+| Deployment | REQ-067, 069 | REQ-070 (chmura) |
 
 ## Zasady aktualizacji
 

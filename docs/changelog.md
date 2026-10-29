@@ -1,10 +1,39 @@
 # CarWebScraper — Changelog
 
 Chronologiczny dziennik istotnych zmian w projekcie. Nowe wpisy dopisuj na górze.
+Od wersji 0.2.0 wpisy są grupowane według wersji ([SemVer](https://semver.org/lang/pl/)), zasady w [releasing.md](releasing.md).
+Zmiany niewydane trafiają pod `## [Unreleased]`.
 
 ---
 
-## 2026-04-30
+## [Unreleased]
+
+## [0.2.0] — 2026-10-29
+
+### Dodano
+
+- Konteneryzacja (REQ-067): `Dockerfile` (Python 3.13, Chromium + Camoufox, użytkownik bez uprawnień root), `compose.yaml` (wolumeny danych i konfiguracji, `shm_size`, rotacja logów), `.dockerignore`, `.env.example`. Instrukcja w [deployment.md](deployment.md).
+- Konfiguracja przez zmienne środowiskowe (REQ-069): `CARSCRAPER_DATA_DIR`, `CARSCRAPER_CONFIG_DIR`, `CARSCRAPER_HEADLESS` w `config.py`; wartości domyślne bez zmian względem uruchomienia lokalnego.
+- Wersjonowanie i CI/CD (REQ-068): wersja w `pyproject.toml` jako jedno źródło prawdy, `main.py --version`, log wersji przy starcie, workflow `ci.yml` (testy + build obrazu) i `release.yml` (tag `vX.Y.Z` → obraz w GHCR + GitHub Release). Procedura w [releasing.md](releasing.md).
+- `pytest` jako zależność dev w `pyproject.toml`/`uv.lock` (wcześniej tylko ręcznie w `.venv`).
+- Analiza i plan migracji do chmury (REQ-070, planned): [cloud.md](cloud.md).
+
+### Naprawiono
+
+- `config.HEADLESS` był ignorowany: argparse ustawiał `headless=False` przy braku flagi, więc warunek `args.headless is not None` nigdy nie sięgał do configu. Teraz domyślnie `None`.
+- `enrichment_runner.py` i główny `analyze.py` używają `config.DATA_DIR` zamiast zahardkodowanej ścieżki `data/otomoto`.
+- Nieaktualny test `test_main_runs_enrichment_when_flag_is_set` (brak argumentu `headless`).
+
+### Usunięto
+
+- Z indeksu git: `otomoto-scraper/preferences.json` (był w `.gitignore`, a mimo to śledzony) i `otomoto-scraper/.playwright-session-state.json` (ciasteczka sesji). Pliki lokalne pozostają na dysku.
+- Martwe pliki: główny `main.py` (stub „Hello”), pusty `otomoto-scraper/analyze.py`, `otomoto-scraper/fix.py` (jednorazowy skrypt z zahardkodowaną ścieżką).
+
+## [0.1.0] — przed wprowadzeniem wersjonowania
+
+Wszystkie poniższe wpisy datowane opisują stan oznaczony jako 0.1.0 (commit `752fb11`).
+
+### 2026-04-30
 
 - Dodano scoring i filtrowanie po kraju pochodzenia pojazdu (`details_country_origin`):
   - Nowa sekcja `origin_scoring` w `soft_preferences` (`preferences.json`/`preferences.example.json`) — pola `poland_bonus`, `private_poland_bonus`, `eu_penalty`, `non_eu_penalty`; scoring stosowany w `evaluate_preferences()` w `preferences.py` na podstawie pola `details_country_origin` (wypełnianego przez enrichment lub LLM).
@@ -15,7 +44,7 @@ Chronologiczny dziennik istotnych zmian w projekcie. Nowe wpisy dopisuj na górz
   - `update_listing_llm_result()` w `llm_worker.py` zapisuje wyekstrahowany kraj do CSV (`details_country_origin`), jeśli pole było puste.
   - `review_single()` zwraca `details_country_origin` w result dict — `notifications.py` natychmiast aktualizuje `row` i ponownie sprawdza `_is_notification_eligible()` w tym samym runie.
 
-## 2026-04-22
+### 2026-04-22
 
 - Zaimplementowano scoring świadomy źródła danych (REQ-066): nowa sekcja `source_adjustments` w `preferences.json`/`preferences.example.json` — per-source parametry `import_cost_pln` i `reliability_score_bonus`; `_calculate_market_score()` w `analytics.py` używa efektywnej ceny (cena + koszty importu) do obliczania pozycji vs mediana segmentu; hard-filter `max_price_pln` w `preferences.py` sprawdza efektywną cenę; domyślna konfiguracja: mobile.de → `import_cost_pln: 5000 PLN`.
 - Naprawiono paginację mobile.de (REQ-062): `COOKIE_SELECTORS` w `scrapers/mobile_de.py` zawierał błędny selektor `button[data-testid=mde-consent-accept-btn]`; rzeczywisty przycisk „Einverstanden" ma wyłącznie klasę CSS `.mde-consent-accept-btn`; poprawiono na `button.mde-consent-accept-btn` jako priorytetowy selektor; modal GDPR blokował hover nad przyciskiem paginacji.
@@ -23,13 +52,13 @@ Chronologiczny dziennik istotnych zmian w projekcie. Nowe wpisy dopisuj na górz
 - Zaplanowano wsparcie dla wielu źródeł danych (REQ-061–064): pole `source` w `queries.json`, wydzielenie scrapera i parsera do `scrapers/` i `parsers/`, nowe moduły `scrapers/mobile_de.py` i `parsers/mobile_de.py`. Enrichment mobile.de odkładany do osobnej iteracji (REQ-064).
 - Zaplanowano strukturyzację kwerend Otomoto (REQ-065): klucz `otomoto_params` w `queries.json`.
 
-## 2026-04-20
+### 2026-04-20
 
 - LLM przestał wpływać na decyzje o powiadomieniach — usunięto blokowanie przez `llm_verdict=reject`/`llm_risk_level=high` (REQ-052 removed) oraz event `llm-approved` (REQ-053 removed). LLM pełni wyłącznie rolę komentatora.
 - Poprawiono jakość komentarzy LLM: `summary` zmienione z jednego zdania na 3-5 zdań, liczba powodów zwiększona do 8, `DEFAULT_MAX_TOKENS` podniesiony do 1600 (REQ-058 updated).
 - Naprawiono błąd scrapera: `wait_until_article_count_stabilizes()` wychodziła po 2 rundach z zerową liczbą artykułów, zanim React zamontował listingi. Dodano `page.wait_for_selector("article[data-id]", timeout=20000)` przed pętlą stabilizacji.
 
-## 2026-04-19
+### 2026-04-19
 
 - Dodano LLM on-demand w warstwie powiadomień: oferty bez oceny LLM są oceniane przez LLM tuż przed wysłaniem powiadomienia (limit `llm.max_notification_llm_calls` per run, domyślnie 5).
 - Naprawiono `upsert_cars_to_csv` w `storage.py`: hardcoded `fieldnames` nie zawierał `details_damaged_flag` ani pól LLM — `writerows` rzucał `ValueError` przy istniejących CSV wzbogaconych przez enrichment/LLM.
@@ -42,12 +71,12 @@ Chronologiczny dziennik istotnych zmian w projekcie. Nowe wpisy dopisuj na górz
 - Dodano tryb `damaged_handling=llm` w `notification_filters` (REQ-055).
 - Dodano flagę `--loop` w `main.py` (REQ-056): nieskończona pętla scrapowania z konfigurowalnymi przerwami.
 
-## 2026-04-18
+### 2026-04-18
 
 - Dodano obsługę HTTP 410 Gone w `enrichment_worker.py`: status `gone` oddzielony od `failed`, automatyczny flush wpisów `gone` z kolejki, oznaczenie `is_active=0` w storage CSV.
 - Zaimplementowano warstwę LLM (`llm_worker.py`): selekcja kandydatów po enrichmentcie, prompt po polsku, OpenAI API z `response_format=json_object`, hard cap 20, cooldown 30 dni, min_final_score, wymóg sidecar JSON.
 
-## 2026-04-17
+### 2026-04-17
 
 - Naprawiono paginację scrapera — selektor `div.eemmnsu4` przestał działać po aktualizacji frontendu Otomoto; zastąpiony selektorami atrybutowymi `button[title='Go to next Page']` / `button[aria-label='Go to next Page']`.
 - Naprawiono `AttributeError: 'NoneType' has no attribute 'strip'` w `enrichment_worker.py` przy odczycie `details_status`.
@@ -56,18 +85,18 @@ Chronologiczny dziennik istotnych zmian w projekcie. Nowe wpisy dopisuj na górz
 - Kolejka enrichmentu jest teraz sortowana malejąco po `priority` przed przetwarzaniem.
 - `--dry-run` w `main.py` pomija scraping stron, ale wykonuje enrichment i powiadomienia gdy podano `--run-enrichment`/`--run-notifications`.
 
-## 2026-04-15
+### 2026-04-15
 
 - Naprawiono fałszywe powiadomienia dla ofert, gdzie kwota z ogłoszenia była ratą lub elementem cesji, a nie realną ceną auta.
 - Rozszerzono i scalono domyślne flagi uszkodzeń z konfiguracją użytkownika w filtrze powiadomień.
 - Dodano testy regresyjne dla przypadków `finance/installment` oraz `damage flags`.
 
-## 2026-04-12
+### 2026-04-12
 
 - Dodano notification anti-noise controls: opcjonalne `min_confidence_score`, strictersze `allowed_buckets`, konfigurowalna obsługa `reactivated`, okno tłumienia dla `bucket-upgrade` zaraz po reaktywacji.
 - Zaostrzono filtrowanie uszkodzonych ofert w powiadomieniach przez `exclude_damaged_listings` plus ciężkie flagi z enrichmentu (`airbags_deployed`, `severe_front_damage` itd.).
 
-## 2026-04-11
+### 2026-04-11
 
 - Dodano selektywny pipeline enrichmentu: selekcja kolejki (`enrichment_selector.py`/`enrichment_runner.py`), worker pobierający szczegóły (`enrichment_worker.py`), aktualizacja CSV statusów i opcjonalne uruchomienie z `main.py` przez `--run-enrichment`.
 - Poprawiono niezawodność scrapera headless: dodano stealth browser launch flags i maskowanie UA.
@@ -78,12 +107,12 @@ Chronologiczny dziennik istotnych zmian w projekcie. Nowe wpisy dopisuj na górz
 - Dodano pierwszy pipeline powiadomień: per-listing state tracking, deduplikowane eventy, `notification_history.csv`, integracja CLI przez `--run-notifications`.
 - Dodano konfigurowalne kanały powiadomień z opcjonalnym transportem Telegram.
 
-## 2026-04-08
+### 2026-04-08
 
 - Dodano `seller_type` — ekstrakcja z list-card, zapis do CSV, korekta scoringu w `analytics.py`.
 - Zaktualizowano statusy wymagań po pełnej walidacji runtime.
 
-## 2026-04-07
+### 2026-04-07
 
 - Zaimplementowano `detect_damage()` — flagi `is_damaged` i `condition_note` w CSV; kara w `analytics.py`.
 - Dodano `analyze.py` runner do lokalnej analizy CSV.

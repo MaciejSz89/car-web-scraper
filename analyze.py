@@ -5,13 +5,14 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent / "otomoto-scraper"))
 
 from analytics import save_query_analysis
+from config import DATA_DIR
 
 
 def run_all():
-    data_dir = Path("data/otomoto")
+    data_dir = DATA_DIR
     csvs = list(data_dir.glob("*.csv"))
     if not csvs:
-        print("No CSV files found in data/otomoto")
+        print(f"No CSV files found in {data_dir}")
         return
 
     for csv_file in csvs:
